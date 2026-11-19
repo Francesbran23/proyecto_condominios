@@ -1,0 +1,6 @@
+id_inquilino,id_departamento,nombre_inquilino,apellino_paterno_inquilino,apellino_materno_inquilino,correo_inquilino
+9001,1,Ana,Ruiz,Cruz,correo-sin-arroba
+9002,1,   ,Ruiz,Cruz,ana.ruiz@correo.example
+9003,99999,Luis,Gómez,Díaz,luis.gomez@correo.example
+9004,2,Alejandro,Sánchez,Cruz,alejandro.sanchez2@correo.example
+9005,2,Eva,Mora,Sosa,eva.mora@correo.example
