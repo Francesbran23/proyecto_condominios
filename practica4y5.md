@@ -399,9 +399,8 @@ Un error dentro de una transacción **solo deshace la sentencia que falló**; la
 
 ## 2.5 ALMACÉN ASIGNADO
 
-**Estado:** ❌ No resuelto — necesita su fork.
+**Estado:** ❌ No resuelto en totalidad
 
-Hay guía y plantillas disponibles en la sección 3.4 del documento original.
 
 ---
 
