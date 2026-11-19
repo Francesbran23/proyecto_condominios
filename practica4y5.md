@@ -409,26 +409,11 @@ Hay guía y plantillas disponibles en la sección 3.4 del documento original.
 
 **Estado:** ✅ Plantilla + ejemplo disponibles.
 
-Cada integrante debe hacer el suyo (sección 3.5 del documento original).
+Cada integrante debe hacer el suyo 
 
 ---
 
-## CAMBIOS OBLIGATORIOS EN EL REPOSITORIO
 
-> **Contexto:** ningún archivo existente del proyecto fue modificado; todo lo nuevo son archivos adicionales. Estos son los cambios que **sí tienes que hacer tú**, en orden de importancia.
-
-| # | Prioridad | Dónde | Qué cambiar | Por qué |
-|---|---|---|---|---|
-| 1 | 🔴 **CRÍTICA** | `back/.env.example` (líneas 6-7 y 14-16) | Reemplazar los valores reales por marcadores: `DB_PASSWORD = <su contraseña>`, `SMTP_USER = <correo>`, `SMTP_PASSWORD = <app_password>`. **Revocar la contraseña de aplicación de Gmail** que aparece ahí y **cambiar la contraseña de MySQL root**. Si el archivo ya se subió a GitHub, limpiarlo del historial (`git filter-repo` o BFG), porque borrar el archivo no borra el historial. | El archivo contiene una contraseña de base de datos y una contraseña de aplicación de Gmail en texto claro. La práctica exige "sin credenciales adentro" y cualquiera con acceso al repo puede usarlas. |
-| 2 | 🔴 **CRÍTICA** | `back/.conexionDataBase.js` líneas 27-28 | Quitar los valores por omisión: `user: process.env.DB_USER` y `password: process.env.DB_PASSWORD` (sin `\|\| 'root'` ni `\|\| 'root12006@'`), y que el programa termine con un mensaje si faltan. | La contraseña está incrustada en el código fuente. |
-| 3 | 🟠 **Alta** | `back/.env` local (no versionado) | Cambiar `DB_USER = usr_app` y poner la contraseña de `usr_app` (después de correr `003-ROLES.SQL`). | Ej. 1.6.3: la aplicación no debe conectarse como administrador/root. |
-| 4 | 🟠 **Alta** | Repositorio | Crear la rama `practica4-5`, copiar las carpetas `practica4/`, `practica5/`, `evidencias/` y `compose.yaml` de este paquete, y hacer commits por integrante en días distintos. Cerrar con Pull Request revisado por otro integrante. | Requisito de continuidad del entorno. |
-| 5 | 🟠 **Alta** | Orden de ejecución | `database/bureau-manager.sql` → `001-DOMINIOS.SQL` → `002-referencias.sql` → `003-ROLES.SQL` (por crear `crear-usuarios.sh`). **No aplicar** `database/migrations/001...006`: el dump ya las incluye (ver nota abajo). | Evita errores por columnas/FK ya existentes. |
-| 6 | 🟡 **Media** | `README.md` | Agregar una sección "Práctica 4-5": cómo levantar `compose.yaml`, el comando único de carga, y la frase "los datos son sintéticos". | Lo pide el ejercicio 1.3. |
-| 7 | 🟡 **Media** | `back/conexionDataBase.js` (manejo de errores) | Donde hoy se responde 500, mapear los nuevos errores a mensajes claros: `ER_CHECK_CONSTRAINT_VIOLATED` (3819), `ER_DUP_ENTRY` en `registrarCuenta`, `registrarCondominio`, `registrarEdificio`, `registrarDepartamento` y `registrarRecibo` (folio repetido), `ER_ROW_IS_REFERENCED_2` (1451). | Hoy solo `registrarInquilino` y `actualizarInquilino` manejan `ER_DUP_ENTRY`; con las nuevas restricciones el usuario vería "Error al registrar..." genérico. |
-| 8 | 🟡 **Media** | Tablas `direccion_condominio` y `fecha_de_pago` | Decidir: eliminarlas (`DROP TABLE`) o documentarlas como legado. Ninguna se usa en `back/` ni `src/`; `direccion_condominio` no tiene FK al condominio y `fecha_de_pago` quedó huérfana desde la migración 002 original. | Una tabla sin relación ni uso es ruido en el modelo; si se conservan, `cp_direccion` debería ser `CHAR(5)` (un `INT` pierde el cero inicial: `01030` → `1030`). |
-| 9 | 🟢 **Baja** | Borrado lógico (opcional) | Si adoptan `recibo.estado_registro`, agregar `AND r.estado_registro = 'activo'` a las consultas de `receiptSelect` (`getRecibos`, envío de correos, PDF masivo). | Si no, los recibos "cancelados" siguen apareciendo en la aplicación. |
-| 10 | ℹ️ **Info** | Nombres de columnas | **No renombrar** `apellino_paterno_inquilino`, `apellino_materno_inquilino`, `descripción_extraordinaria` (errores de dedo): la API y el front los usan. Documentarlos como deuda técnica en `dominios.md`. | Renombrar rompería la aplicación. |
 
 ### Nota sobre la numeración de migraciones
 
