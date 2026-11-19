@@ -5,7 +5,10 @@ const cors = require('cors');
 const nodemailer = require('nodemailer');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const { promisify } = require('util');
 const app = express();
+const scrypt = promisify(crypto.scrypt);
 
 const envPath = path.join(__dirname, '.env');
 if (fs.existsSync(envPath)) {
@@ -31,6 +34,52 @@ const dbConfig = {
 
 const connection = mysql.createPool(dbConfig);
 const database = connection.promise();
+
+async function hashPassword(password) {
+  const salt = crypto.randomBytes(16);
+  const derivedKey = await scrypt(password, salt, 64);
+  return `scrypt$${salt.toString('hex')}$${derivedKey.toString('hex')}`;
+}
+
+async function verifyPassword(password, storedPassword) {
+  if (!storedPassword.startsWith('scrypt$')) {
+    const provided = Buffer.from(password, 'utf8');
+    const stored = Buffer.from(storedPassword, 'utf8');
+    return provided.length === stored.length && crypto.timingSafeEqual(provided, stored);
+  }
+
+  const [, saltHex, hashHex, ...extra] = storedPassword.split('$');
+  if (
+    extra.length ||
+    !/^[a-f0-9]{32}$/i.test(saltHex || '') ||
+    !/^[a-f0-9]{128}$/i.test(hashHex || '')
+  ) {
+    return false;
+  }
+
+  const salt = Buffer.from(saltHex, 'hex');
+  const expected = Buffer.from(hashHex, 'hex');
+  const actual = await scrypt(password, salt, expected.length);
+  return crypto.timingSafeEqual(actual, expected);
+}
+
+function hashResetToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+function createMailTransporter() {
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD } = process.env;
+  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASSWORD) {
+    return null;
+  }
+
+  return nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: Number(SMTP_PORT || 587),
+    secure: Number(SMTP_PORT) === 465,
+    auth: { user: SMTP_USER, pass: SMTP_PASSWORD },
+  });
+}
 
 function respondWithDatabaseError(res, error, message) {
   console.error(message, error);
@@ -100,6 +149,15 @@ app.post('/api/registrarCuenta', async (req, res) => {
     contraseña_administrador,
   } = req.body;
 
+  const normalizedEmail = String(correo_administrador || '').trim();
+  const password = String(contraseña_administrador || '');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    return res.status(400).json({ error: 'Ingresa un correo electrónico válido.' });
+  }
+  if (password.length < 8 || password.length > 128) {
+    return res.status(400).json({ error: 'La contraseña debe tener entre 8 y 128 caracteres.' });
+  }
+
   try {
     await database.query(
       `INSERT INTO administrador
@@ -107,7 +165,7 @@ app.post('/api/registrarCuenta', async (req, res) => {
          correo_administrador, contraseña_administrador)
        VALUES (?, ?, ?, ?, ?)`,
       [nombre_administrador, apellido_paterno_administrador, apellido_materno_administrador,
-        correo_administrador, contraseña_administrador]
+        normalizedEmail, await hashPassword(password)]
     );
     return res.json(200);
   } catch (error) {
@@ -490,6 +548,132 @@ app.post('/api/enviarRecibosCorreoElectronico', async (req, res) => {
   }
 });
 
+app.post('/api/solicitarRestablecimiento', async (req, res) => {
+  const email = String(req.body.correo_administrador || '').trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'Ingresa un correo electrónico válido.' });
+  }
+
+  const transporter = createMailTransporter();
+  if (!transporter) {
+    return res.status(503).json({
+      error: 'El envío de correo no está configurado. Contacta al administrador del sistema.',
+    });
+  }
+
+  try {
+    await transporter.verify();
+  } catch (error) {
+    console.error('No se pudo verificar el servicio de correo para restablecimiento:', error);
+    return res.status(502).json({ error: 'No se pudo enviar el correo. Inténtalo más tarde.' });
+  }
+
+  let administrators;
+  try {
+    [administrators] = await database.query(
+      `SELECT id_administrador, correo_administrador
+       FROM administrador WHERE correo_administrador = ? LIMIT 1`,
+      [email]
+    );
+  } catch (error) {
+    return respondWithDatabaseError(res, error, 'Error al buscar la cuenta para restablecimiento');
+  }
+
+  const genericResponse = {
+    message: 'Si el correo está asociado a una cuenta, recibirás un enlace para restablecer la contraseña.',
+  };
+  if (administrators.length === 0) {
+    return res.json(genericResponse);
+  }
+
+  const administrator = administrators[0];
+  const token = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashResetToken(token);
+  try {
+    await database.query(
+      `INSERT INTO password_reset_tokens (id_administrador, token_hash, expires_at)
+       VALUES (?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 1 HOUR))
+       ON DUPLICATE KEY UPDATE token_hash = VALUES(token_hash),
+         expires_at = VALUES(expires_at), created_at = CURRENT_TIMESTAMP`,
+      [administrator.id_administrador, tokenHash]
+    );
+  } catch (error) {
+    return respondWithDatabaseError(res, error, 'Error al crear el enlace de restablecimiento');
+  }
+
+  const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/+$/, '');
+  const resetUrl = `${frontendUrl}/RestablecerContrasena?token=${encodeURIComponent(token)}`;
+  try {
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: administrator.correo_administrador,
+      subject: 'Restablece tu contraseña de Bureau-Manager',
+      text: `Recibimos una solicitud para restablecer la contraseña de tu cuenta. Abre este enlace dentro de la próxima hora para elegir una nueva contraseña:\n\n${resetUrl}\n\nSi no solicitaste este cambio, puedes ignorar este correo.`,
+    });
+    return res.json(genericResponse);
+  } catch (error) {
+    console.error('Error al enviar el correo de restablecimiento:', error);
+    try {
+      await database.query(
+        'DELETE FROM password_reset_tokens WHERE id_administrador = ? AND token_hash = ?',
+        [administrator.id_administrador, tokenHash]
+      );
+    } catch (cleanupError) {
+      console.error('No se pudo invalidar el enlace de restablecimiento no enviado:', cleanupError);
+    }
+    return res.status(502).json({ error: 'No se pudo enviar el correo. Inténtalo más tarde.' });
+  }
+});
+
+app.post('/api/restablecerContrasena', async (req, res) => {
+  const token = String(req.body.token || '');
+  const password = String(req.body.contraseña_administrador || '');
+  if (!/^[a-f0-9]{64}$/i.test(token)) {
+    return res.status(400).json({ error: 'El enlace no es válido o ya venció. Solicita uno nuevo.' });
+  }
+  if (password.length < 8 || password.length > 128) {
+    return res.status(400).json({ error: 'La contraseña debe tener entre 8 y 128 caracteres.' });
+  }
+
+  let dbConnection;
+  try {
+    dbConnection = await database.getConnection();
+    await dbConnection.beginTransaction();
+
+    const [tokens] = await dbConnection.query(
+      `SELECT id_administrador FROM password_reset_tokens
+       WHERE token_hash = ? AND expires_at > UTC_TIMESTAMP() FOR UPDATE`,
+      [hashResetToken(token)]
+    );
+    if (tokens.length === 0) {
+      await dbConnection.rollback();
+      return res.status(400).json({ error: 'El enlace no es válido o ya venció. Solicita uno nuevo.' });
+    }
+
+    await dbConnection.query(
+      'UPDATE administrador SET contraseña_administrador = ? WHERE id_administrador = ?',
+      [await hashPassword(password), tokens[0].id_administrador]
+    );
+    await dbConnection.query(
+      'DELETE FROM password_reset_tokens WHERE id_administrador = ?',
+      [tokens[0].id_administrador]
+    );
+    await dbConnection.commit();
+    return res.json({ message: 'Tu contraseña se actualizó. Ya puedes iniciar sesión.' });
+  } catch (error) {
+    if (dbConnection) {
+      try {
+        await dbConnection.rollback();
+      } catch (rollbackError) {
+        console.error('Error al revertir el restablecimiento de contraseña:', rollbackError);
+      }
+    }
+    return respondWithDatabaseError(res, error, 'Error al restablecer la contraseña');
+  } finally {
+    if (dbConnection) dbConnection.release();
+  }
+});
+
 app.post('/api/generarPDFMasivo', async (req, res) => {
   try {
     const lista = req.body;
@@ -639,23 +823,33 @@ app.post('/api/liberarInquilino', async (req, res) => {
 
 //███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████
 
-app.post('/api/getAdmin', (req, res) => {
+app.post('/api/getAdmin', async (req, res) => {
   const { correo_administrador, contraseña_administrador } = req.body;
-  connection.query(
-    'SELECT * FROM Administrador WHERE correo_administrador = ? AND contraseña_administrador = ?',
-    [correo_administrador, contraseña_administrador],
-    (error, results) => {
-      if (error) {
-        return respondWithDatabaseError(res, error, 'Error al validar la cuenta');
-      } else {
-        if (results.length === 1) {
-          res.json(1);
-        } else {
-          res.json(0);
-        }
-      }
+  try {
+    const [administrators] = await database.query(
+      `SELECT id_administrador, contraseña_administrador
+       FROM administrador WHERE correo_administrador = ? LIMIT 1`,
+      [correo_administrador]
+    );
+    if (administrators.length === 0) {
+      return res.json(0);
     }
-  );
+
+    const administrator = administrators[0];
+    if (!await verifyPassword(String(contraseña_administrador || ''), administrator.contraseña_administrador)) {
+      return res.json(0);
+    }
+
+    if (!administrator.contraseña_administrador.startsWith('scrypt$')) {
+      await database.query(
+        'UPDATE administrador SET contraseña_administrador = ? WHERE id_administrador = ?',
+        [await hashPassword(String(contraseña_administrador)), administrator.id_administrador]
+      );
+    }
+    return res.json(1);
+  } catch (error) {
+    return respondWithDatabaseError(res, error, 'Error al validar la cuenta');
+  }
 });
 
 app.get('/api/getRecibos', (req, res) => {

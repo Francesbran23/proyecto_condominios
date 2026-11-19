@@ -3,6 +3,8 @@ import { BrowserRouter as Router,Routes, Route } from 'react-router-dom';
 import './App.css';
 import Formulario from './componentes/iniciosesion.js';
 import RegistrarCuenta from './componentes/registroCuenta.js';
+import RecuperarContrasena from './componentes/recuperarContrasena.js';
+import RestablecerContrasena from './componentes/restablecerContrasena.js';
 import MenuInicial from './componentes/menuInicial.js';
 import EdicionyRegistro from "./componentes/edicionyRegistro.js";
 import NuevoCondominio from "./componentes/nuevoCondominio.js";
@@ -25,6 +27,8 @@ function App() {
       <Routes>
         <Route path="/" element={<Formulario />}  />
         <Route path="/RegistrarCuenta" element={<RegistrarCuenta />}  />
+        <Route path="/RecuperarContrasena" element={<RecuperarContrasena />}  />
+        <Route path="/RestablecerContrasena" element={<RestablecerContrasena />}  />
         <Route path="/MenuPrincipal" element={<MenuInicial />}  />
         <Route path="/EdicionyRegistro" element={<EdicionyRegistro />}  />
         <Route path="/NuevoCondominio" element={<NuevoCondominio />}  />
@@ -44,7 +48,6 @@ function App() {
 }
 
 export default App;
-
 
 
 

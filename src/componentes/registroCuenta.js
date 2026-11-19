@@ -84,6 +84,12 @@ function RegistrarCuenta() {
       if (formulario.contraseña_administrador.trim() === '') {
         newErrors.contraseña_administrador = '*Ingrese una contraseña';
         valid = false;
+      } else if (formulario.contraseña_administrador.length < 8) {
+        newErrors.contraseña_administrador = '*La contraseña debe tener al menos 8 caracteres';
+        valid = false;
+      } else if (formulario.contraseña_administrador.length > 128) {
+        newErrors.contraseña_administrador = '*La contraseña no puede superar 128 caracteres';
+        valid = false;
       }
   
       setErrors(newErrors);
@@ -150,6 +156,8 @@ function RegistrarCuenta() {
                 placeholder="Contraseña"
                 value={formulario.contraseña_administrador}
                 onChange={handleChange}
+                minLength={8}
+                maxLength={128}
           /> 
           {<div className="error-message">{errors.contraseña_administrador}</div>}
         </div>

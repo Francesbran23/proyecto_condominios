@@ -54,7 +54,7 @@ CREATE TABLE `administrador` (
   `apellido_paterno_administrador` varchar(30) NOT NULL,
   `apellido_materno_administrador` varchar(30) NOT NULL,
   `correo_administrador` varchar(45) NOT NULL,
-  `contraseña_administrador` varchar(20) NOT NULL,
+  `contraseña_administrador` varchar(255) NOT NULL,
   PRIMARY KEY (`id_administrador`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -67,6 +67,23 @@ LOCK TABLES `administrador` WRITE;
 /*!40000 ALTER TABLE `administrador` DISABLE KEYS */;
 /*!40000 ALTER TABLE `administrador` ENABLE KEYS */;
 UNLOCK TABLES;
+
+--
+-- Table structure for table `password_reset_tokens`
+--
+
+DROP TABLE IF EXISTS `password_reset_tokens`;
+CREATE TABLE `password_reset_tokens` (
+  `id_administrador` int NOT NULL,
+  `token_hash` char(64) NOT NULL,
+  `expires_at` datetime NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id_administrador`),
+  UNIQUE KEY `uq_password_reset_token_hash` (`token_hash`),
+  CONSTRAINT `fk_password_reset_administrador`
+    FOREIGN KEY (`id_administrador`) REFERENCES `administrador` (`id_administrador`)
+    ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 --
 -- Table structure for table `concepto de pago`

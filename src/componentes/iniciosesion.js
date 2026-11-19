@@ -96,6 +96,7 @@ function Formulario() {
             </div>
             <button type="submit">Iniciar Sesión</button>
             <div className="error-message" style={{ display: visible ? 'block' : 'none' }}>Correo electrónico o contraseña incorrectos</div>
+            <p><Link to="/RecuperarContrasena">Olvidé mi contraseña</Link></p>
             <p>¿No te has registrado? <Link to="/RegistrarCuenta">Crear Cuenta</Link></p>
           </form>   
     );
