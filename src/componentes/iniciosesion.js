@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import axios from '../api';
 import logo from '../img/logo2.png';
 
 function Formulario() {
@@ -10,7 +10,6 @@ function Formulario() {
     });
     const navigate = useNavigate();
     const [visible, setVisible] = useState(false);
-    const [redirigir, setRedirigir] = useState(false);
     
     const [errorCorreo, setErrorCorreo] = useState('');
     const [errorContraseña, setErrorContraseña] = useState('');
@@ -48,9 +47,10 @@ function Formulario() {
       }
       if (formulario.correo_administrador.trim() !== '' && formulario.contraseña_administrador.trim() !== '') {
         try {
-          const resultado = await axios.post('http://localhost:4001/api/getAdmin', formulario);
-          if (resultado.data === 1) {
-            setRedirigir(true);
+          const resultado = await axios.post('/api/getAdmin', formulario);
+          if (resultado.data?.token) {
+            window.sessionStorage.setItem('authToken', resultado.data.token);
+            navigate('/MenuPrincipal', { replace: true });
           } else {
             setVisible(true);
           }
@@ -61,10 +61,6 @@ function Formulario() {
       }
     };
     
-    if (redirigir) {
-      navigate('/MenuPrincipal');
-    }
-
     return (
           <form onSubmit={handleSubmit}>
             <div className='divCenter'>

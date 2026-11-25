@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import axios from 'axios';
+import axios from '../api';
 
 
 function NuevoInquilino() {
@@ -21,7 +21,7 @@ function NuevoInquilino() {
   const [edificios, setEdificios] = useState([]);
 
   useEffect(() => {
-    axios.get('http://localhost:4001/api/getCondominios')
+    axios.get('/api/getCondominios')
       .then(response => {
         if(response.data.length === 0){
           setEdificios([]);
@@ -39,7 +39,7 @@ function NuevoInquilino() {
         const diccionario = {};
         diccionario['id_condominio'] = parseInt(selectedCondominio);
   
-        axios.post(`http://localhost:4001/api/getEdificiosbyCondominio`,diccionario)
+        axios.post(`/api/getEdificiosbyCondominio`,diccionario)
           .then(resultado => {
             if (resultado.data.length === 0) {
               setEdificios([]);
@@ -58,7 +58,7 @@ function NuevoInquilino() {
               const diccionario2 = {};
               diccionario2['id_edificio'] = parseInt(selectedEdifcio);
               
-              axios.post(`http://localhost:4001/api/getDepartamentosbyEdificios`,diccionario2)
+              axios.post(`/api/getDepartamentosbyEdificios`,diccionario2)
               .then(resultado => {
                 if (resultado.data.length === 0) {
                   setDepartamentos([]);
@@ -109,7 +109,7 @@ function NuevoInquilino() {
         const diccionario = {};
         diccionario['id_condominio'] = selectedCondominio.id_condominio;
   
-        axios.post(`http://localhost:4001/api/getEdificiosbyCondominio`,diccionario)
+        axios.post(`/api/getEdificiosbyCondominio`,diccionario)
           .then(resultado => {
             if (resultado.data.length === 0) {
               setEdificios([]);
@@ -126,7 +126,7 @@ function NuevoInquilino() {
               const diccionario2 = {};
               diccionario2['id_edificio'] = parseInt(selectedEdifcio);
               
-              axios.post(`http://localhost:4001/api/getDepartamentosbyEdificios`,diccionario2)
+              axios.post(`/api/getDepartamentosbyEdificios`,diccionario2)
               .then(resultado => {
                 if (resultado.data.length === 0) {
                   setDepartamentos([]);
@@ -169,7 +169,7 @@ function NuevoInquilino() {
         const diccionario = {};
         diccionario['id_edificio'] = selectedEdificio.id_edificio;
   
-        axios.post(`http://localhost:4001/api/getDepartamentosbyEdificios`,diccionario)
+        axios.post(`/api/getDepartamentosbyEdificios`,diccionario)
           .then(resultado => {
             if (resultado.data.length === 0) {
               setDepartamentos([]);
@@ -220,7 +220,7 @@ function NuevoInquilino() {
       return;
     }
     try {
-      const resultado = await axios.post('http://localhost:4001/api/registrarInquilino', formulario);
+      const resultado = await axios.post('/api/registrarInquilino', formulario);
       if (resultado.data === 200) {
         setVisible(true);
       } else {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import axios from 'axios';
+import axios from '../api';
 
 function EditoEdificio() {
 
@@ -16,7 +16,7 @@ function EditoEdificio() {
 
 
   useEffect(() => {
-    axios.get('http://localhost:4001/api/getCondominios')
+    axios.get('/api/getCondominios')
       .then(response => {
         if(response.data.length === 0){
           setFormulario({
@@ -35,7 +35,7 @@ function EditoEdificio() {
         const selectedCondominio = response.data[0].id_condominio;
         const diccionario = { id_condominio: selectedCondominio };
   
-        axios.post(`http://localhost:4001/api/getEdificiosbyCondominio`,diccionario)
+        axios.post('/api/getEdificiosbyCondominio', diccionario)
           .then(resultado => {
             if (resultado.data.length === 0) {
               setFormulario({
@@ -75,7 +75,7 @@ function EditoEdificio() {
     if (selectedCondominio) {
         const diccionario = { id_condominio: selectedCondominio.id_condominio };
   
-        axios.post(`http://localhost:4001/api/getEdificiosbyCondominio`,diccionario)
+        axios.post('/api/getEdificiosbyCondominio', diccionario)
           .then(resultado => {
             if (resultado.data.length === 0) {
               setEdificios([]);

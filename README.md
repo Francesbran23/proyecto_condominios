@@ -2,14 +2,29 @@
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
-## Running the app with MySQL
+## Running the app with Neon
 
-1. Start MySQL and import `database/bureau-manager.sql` if the `bureau-manager` schema has not been created yet.
-2. For an existing database created from the original SQL dump, apply `database/migrations/001_add_receipt_number.sql`, `database/migrations/002_migrate_relationships_and_receipt_date.sql`, `database/migrations/003_prevent_duplicate_tenants.sql`, `database/migrations/004_allow_unassigned_tenants.sql`, `database/migrations/005_add_receipt_payment_status.sql`, and `database/migrations/006_add_password_reset.sql` once each. The second migration moves the tenant-to-department relationship and preserves existing receipt dates. Before applying the third migration, resolve any existing duplicate tenants with the same name, surnames, email, and department. The fourth migration allows an inquilino's department assignment to be released without deleting the inquilino or their receipts. The fifth migration adds payment status and marks existing receipts as pending by default. The sixth migration prepares account passwords for secure hashing and creates the one-time password-reset token table. Existing plaintext passwords continue working and are upgraded to hashes after a successful login.
-3. Copy `back/.env.example` to `back/.env` and set `DB_PASSWORD` to your local MySQL password. Keep `back/.env` private; it is excluded from Git.
-4. To enable receipt emails and password-reset links with Gmail, set `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=465`, `SMTP_USER` to the sending Gmail address, `SMTP_PASSWORD` to a Google App Password, and optionally `SMTP_FROM` in `back/.env`. `FRONTEND_URL` should be the URL where the React app is available (default `http://localhost:3000`). A normal Gmail account password will not work; enable 2-Step Verification and create an App Password in the Google Account security settings. Never share or commit the app password.
-5. In one terminal, run `npm start` from `back/` to start the API on port 4001, which is the port used by the React client.
-6. In another terminal, run `npm start` from the project root to start React on port 3000.
+The backend uses Neon PostgreSQL through `DATABASE_URL` from the project-root `.env.local` file created by the Neon CLI. That file is ignored by Git; do not commit or share it.
+
+1. The Neon `production` branch is configured in `neon.ts`. The schema migration creates the application tables and does not copy records from any existing MySQL database.
+2. From `back/`, run `npm run db:migrate` to create the PostgreSQL tables. The migration is safe to rerun.
+3. Configure optional mail settings (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM`) in `back/.env`. Keep credentials private.
+4. Run `npm start` from `back/` to start the API on port 4001, then run `npm start` from the project root to start React on port 3000.
+5. To host React and the API separately, set `REACT_APP_API_URL` to the public API origin when building the frontend. Neon provides the database and backend services, but does not host this React site or the Express API.
+
+The app retains its existing administrator accounts and password flow in the `administrador` table; Managed Neon Auth is enabled on the branch but is not used by the app. Object Storage and Realtime are provisioned but are not yet part of an application workflow. AI Gateway inference requires credits, which were unavailable at setup time. The deployed `hello` Neon Function is a separate connectivity example, not the Express API.
+
+## Legacy MySQL database notes
+
+The following instructions apply only to the original MySQL database and are not needed by the Neon-backed app.
+
+1. Start MySQL. For a **new, empty database only**, import `database/bureau-manager.sql` in MySQL Workbench; the dump drops and recreates its tables, so do not import it over a database containing data.
+2. For an **existing database** created from the original SQL dump, apply `database/migrations/001_add_receipt_number.sql`, `database/migrations/002_migrate_relationships_and_receipt_date.sql`, `database/migrations/003_prevent_duplicate_tenants.sql`, `database/migrations/004_allow_unassigned_tenants.sql`, `database/migrations/005_add_receipt_payment_status.sql`, `database/migrations/006_add_password_reset.sql`, and `database/migrations/007_enforce_domain_constraints.sql` in order. The second migration moves the tenant-to-department relationship and preserves existing receipt dates. Before applying the third migration, resolve any existing duplicate tenants with the same name, surnames, email, and department. The fourth migration allows an inquilino's department assignment to be released without deleting the inquilino or their receipts. The fifth migration adds payment status and marks existing receipts as pending by default. The sixth migration prepares account passwords for secure hashing and creates the one-time password-reset token table. Existing plaintext passwords continue working and are upgraded to hashes after a successful login. The seventh migration adds the domain checks and uniqueness rules; duplicate receipt folios within a condominium are preserved as `AUTO-<id_recibo>` except for the first receipt in each duplicate group. It is safe to rerun if a previous attempt stopped partway through.
+3. If starting from the new dump, do not apply migrations 001–006; the dump already includes their final schema. Migration 007 can be run on the dump and is safe to rerun.
+4. Copy `back/.env.example` to `back/.env` and set `DB_PASSWORD` to your local MySQL password. Keep `back/.env` private; it is excluded from Git.
+5. To enable receipt emails and password-reset links with Gmail, set `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=465`, `SMTP_USER` to the sending Gmail address, `SMTP_PASSWORD` to a Google App Password, and optionally `SMTP_FROM` in `back/.env`. `FRONTEND_URL` should be the URL where the React app is available (default `http://localhost:3000`). A normal Gmail account password will not work; enable 2-Step Verification and create an App Password in the Google Account security settings. Never share or commit the app password.
+6. In one terminal, run `npm start` from `back/` to start the API on port 4001, which is the port used by the React client.
+7. In another terminal, run `npm start` from the project root to start React on port 3000.
 
 ## Available Scripts
 

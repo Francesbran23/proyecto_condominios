@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import axios from 'axios';
+import axios from '../api';
 
 
 function NuevoCondominio() {
@@ -44,7 +44,7 @@ function NuevoCondominio() {
     }
     if (formulario.nombre_condominio.trim() !== '' && formulario.direccion_condominio.trim() !== '') {
       try {
-        const resultado = await axios.post('http://localhost:4001/api/registrarCondominio', formulario);
+        const resultado = await axios.post('/api/registrarCondominio', formulario);
         if (resultado.data === 200) {
           setVisible(true);
           setFormulario({ nombre_condominio: '', direccion_condominio: '' });

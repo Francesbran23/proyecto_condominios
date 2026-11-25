@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import axios from 'axios';
+import axios from '../api';
 
 function EditoEdificio() {
 
@@ -14,7 +14,7 @@ function EditoEdificio() {
 
 
   useEffect(() => {
-        axios.get(`http://localhost:4001/api/getEdificios`)
+        axios.get(`/api/getEdificios`)
           .then(resultado => {
             if (resultado.data.length === 0) {
               setFormulario({
@@ -59,7 +59,7 @@ function EditoEdificio() {
       return;
     }
     try {
-      const resultado = await axios.post('http://localhost:4001/api/registrarDepartamento', formulario);
+      const resultado = await axios.post('/api/registrarDepartamento', formulario);
       if (resultado.data === 200) {
         setVisible(true);
       } else {

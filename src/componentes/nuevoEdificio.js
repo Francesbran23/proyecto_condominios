@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import axios from 'axios';
+import axios from '../api';
 
 
 function NuevoEdificio() {
@@ -12,7 +12,7 @@ function NuevoEdificio() {
   const [condominios, setCondominios] = useState([]);
 
   useEffect(() => {
-    axios.get('http://localhost:4001/api/getCondominios')
+    axios.get('/api/getCondominios')
       .then(response => {
         setCondominios(response.data);
         setFormulario(prevState => ({
@@ -58,7 +58,7 @@ function NuevoEdificio() {
       return;
     }
     try {
-      const resultado = await axios.post('http://localhost:4001/api/registrarEdificio', formulario);
+      const resultado = await axios.post('/api/registrarEdificio', formulario);
       if (resultado.data === 200) {
         setVisible(true);
       } else {

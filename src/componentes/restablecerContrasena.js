@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import axios from 'axios';
+import axios from '../api';
 
 function RestablecerContrasena() {
   const [searchParams] = useSearchParams();
@@ -23,7 +23,7 @@ function RestablecerContrasena() {
     setProcesando(true);
     try {
       const resultado = await axios.post(
-        'http://localhost:4001/api/restablecerContrasena',
+        '/api/restablecerContrasena',
         { token, contraseña_administrador: contrasena }
       );
       setMensaje(resultado.data.message);

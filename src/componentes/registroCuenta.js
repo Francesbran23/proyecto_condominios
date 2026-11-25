@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate} from 'react-router-dom';
-import axios from 'axios';
+import axios from '../api';
 
 function RegistrarCuenta() {
     const [formulario, setFormulario] = useState({
@@ -21,7 +21,7 @@ function RegistrarCuenta() {
       if (validateForm()) {
         try {
           const resultado = await axios.post(
-            'http://localhost:4001/api/registrarCuenta',
+            '/api/registrarCuenta',
             formulario
           );
           if (resultado.data === 200) {

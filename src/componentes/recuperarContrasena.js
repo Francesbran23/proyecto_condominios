@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import axios from 'axios';
+import axios from '../api';
 
 function RecuperarContrasena() {
   const [correo, setCorreo] = useState('');
@@ -16,7 +16,7 @@ function RecuperarContrasena() {
 
     try {
       const resultado = await axios.post(
-        'http://localhost:4001/api/solicitarRestablecimiento',
+        '/api/solicitarRestablecimiento',
         { correo_administrador: correo }
       );
       setMensaje(resultado.data.message);

@@ -1,39 +1,29 @@
 const express = require('express');
-const mysql = require('mysql2');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const nodemailer = require('nodemailer');
-const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const { promisify } = require('util');
 const app = express();
 const scrypt = promisify(crypto.scrypt);
-
-const envPath = path.join(__dirname, '.env');
-if (fs.existsSync(envPath)) {
-  const envFile = fs.readFileSync(envPath, 'utf8');
-  envFile.split(/\r?\n/).forEach(line => {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) return;
-    const [key, ...rest] = trimmed.split('=');
-    process.env[key] = rest.join('=');
-  });
+const { connection, database } = require('./neonDatabase');
+const { getReceiptPdf, saveReceiptPdf } = require('./storage');
+const { createRealtime, rawSql } = require('@neon/realtime/server');
+const jwtSecret = process.env.AUTH_JWT_SECRET;
+if (!jwtSecret || jwtSecret.length < 32) {
+  throw new Error('AUTH_JWT_SECRET must contain at least 32 characters and remain server-side.');
 }
-
-const dbConfig = {
-  host: process.env.DB_HOST || '127.0.0.1',
-  port: Number(process.env.DB_PORT || 3306),
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || 'root2006@',
-  database: process.env.DB_NAME || 'bureau-manager',
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const uniqueConstraintMessages = {
+  uq_administrador_correo: 'Ya existe una cuenta con ese correo electrónico.',
+  uq_condominio_nombre: 'Ya existe un condominio con ese nombre.',
+  uq_edificio_condominio_nombre: 'Ya existe un edificio con ese nombre en el condominio seleccionado.',
+  uq_edificio_nombre_condominio: 'Ya existe un edificio con ese nombre en el condominio seleccionado.',
+  uq_departamento_edificio_numero: 'Ya existe ese número de departamento en el edificio seleccionado.',
+  uq_departamento_numero_edificio: 'Ya existe ese número de departamento en el edificio seleccionado.',
+  uq_recibo_condominio_numero: 'Ya existe ese número de recibo en el condominio seleccionado.',
 };
-
-const connection = mysql.createPool(dbConfig);
-const database = connection.promise();
 
 async function hashPassword(password) {
   const salt = crypto.randomBytes(16);
@@ -83,7 +73,29 @@ function createMailTransporter() {
 
 function respondWithDatabaseError(res, error, message) {
   console.error(message, error);
+  if (error.code === '23505' || error.code === 'ER_DUP_ENTRY') {
+    const constraintMessage = Object.entries(uniqueConstraintMessages)
+      .find(([constraint]) => error.constraint === constraint || error.message.includes(constraint));
+    if (constraintMessage) {
+      return res.status(409).json({ error: constraintMessage[1] });
+    }
+    return res.status(409).json({ error: 'El registro ya existe y debe ser único.' });
+  }
+  if (error.code === '23514' || error.code === 'ER_CHECK_CONSTRAINT_VIOLATED') {
+    return res.status(400).json({ error: 'Los datos no cumplen las reglas de validación del sistema.' });
+  }
+  if (error.code === '23503' || error.code === '23502') {
+    return res.status(400).json({ error: 'Los datos hacen referencia a un registro que no existe o incumplen un campo obligatorio.' });
+  }
   return res.status(500).json({ error: message });
+}
+
+function isDuplicateEntry(error) {
+  return error.code === '23505' || error.code === 'ER_DUP_ENTRY';
+}
+
+function isValidEmail(value) {
+  return emailPattern.test(String(value || '').trim());
 }
 
 function exceedsColumnLength(value, maxLength) {
@@ -114,29 +126,58 @@ async function tenantIdentityExists(departmentId, tenant, excludedTenantId = nul
 
 connection.getConnection((error, dbConnection) => {
   if (error) {
-    console.error('No se pudo conectar a la base de datos MySQL:', error.message);
-    console.error('Verifica que MySQL esté corriendo y que los datos de conexión sean correctos.');
-    console.error('Configuración actual:', {
-      host: dbConfig.host,
-      port: dbConfig.port,
-      database: dbConfig.database,
-      user: dbConfig.user,
-    });
+    console.error('No se pudo conectar a Neon PostgreSQL:', error.message);
     return;
   }
 
   dbConnection.release();
-  console.log('Conexión a la base de datos MySQL establecida');
+  console.log('Conexión a Neon PostgreSQL establecida');
 });
 
 // Configurar body-parser para manejar solicitudes POST
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 
-// Permitir solicitudes CORS desde cualquier origen
-app.use(cors());
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
+const publicApiRoutes = new Set([
+  'POST /registrarCuenta',
+  'POST /getAdmin',
+  'POST /solicitarRestablecimiento',
+  'POST /restablecerContrasena',
+]);
+
+app.use('/api', (req, res, next) => {
+  if (publicApiRoutes.has(`${req.method} ${req.path}`)) return next();
+
+  const match = /^Bearer\s+(.+)$/i.exec(req.get('Authorization') || '');
+  if (!match) return res.status(401).json({ error: 'Inicia sesión para continuar.' });
+
+  try {
+    const payload = jwt.verify(match[1], jwtSecret, {
+      algorithms: ['HS256'],
+      issuer: 'bureau-manager',
+      audience: 'bureau-manager-web',
+    });
+    const administratorId = Number(payload.sub);
+    if (!Number.isSafeInteger(administratorId) || administratorId < 1) {
+      return res.status(401).json({ error: 'La sesión no es válida. Inicia sesión de nuevo.' });
+    }
+    req.authAdminId = administratorId;
+    return next();
+  } catch (error) {
+    return res.status(401).json({ error: 'La sesión venció o no es válida. Inicia sesión de nuevo.' });
+  }
+});
 
 const { crearPDF, crearPDFMultiple } = require('./reciboPdf');
+const databaseName = decodeURIComponent(new URL(process.env.DATABASE_URL).pathname.slice(1));
+const realtime = process.env.NEON_REALTIME_SECRET
+  ? createRealtime({ secret: process.env.NEON_REALTIME_SECRET, db: databaseName })
+  : null;
 
 // Endpoint para manejar solicitudes POST
 //███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████
@@ -151,7 +192,16 @@ app.post('/api/registrarCuenta', async (req, res) => {
 
   const normalizedEmail = String(correo_administrador || '').trim();
   const password = String(contraseña_administrador || '');
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+  const normalizedName = String(nombre_administrador || '').trim();
+  const normalizedPaternalSurname = String(apellido_paterno_administrador || '').trim();
+  const normalizedMaternalSurname = String(apellido_materno_administrador || '').trim();
+  if (!normalizedName || !normalizedPaternalSurname || !normalizedMaternalSurname) {
+    return res.status(400).json({ error: 'El nombre y ambos apellidos son obligatorios.' });
+  }
+  if ([normalizedName, normalizedPaternalSurname, normalizedMaternalSurname].some(value => value.length > 30)) {
+    return res.status(400).json({ error: 'El nombre y los apellidos no pueden superar 30 caracteres.' });
+  }
+  if (!isValidEmail(normalizedEmail) || normalizedEmail.length > 45) {
     return res.status(400).json({ error: 'Ingresa un correo electrónico válido.' });
   }
   if (password.length < 8 || password.length > 128) {
@@ -164,7 +214,7 @@ app.post('/api/registrarCuenta', async (req, res) => {
         (nombre_administrador, apellido_paterno_administrador, apellido_materno_administrador,
          correo_administrador, contraseña_administrador)
        VALUES (?, ?, ?, ?, ?)`,
-      [nombre_administrador, apellido_paterno_administrador, apellido_materno_administrador,
+      [normalizedName, normalizedPaternalSurname, normalizedMaternalSurname,
         normalizedEmail, await hashPassword(password)]
     );
     return res.json(200);
@@ -258,6 +308,9 @@ app.post('/api/registrarInquilino', async (req, res) => {
   ) {
     return res.status(400).json({ error: 'Los datos del inquilino no pueden superar 45 caracteres cada uno.' });
   }
+  if (!isValidEmail(correo_inquilino)) {
+    return res.status(400).json({ error: 'Ingresa un correo electrónico válido para el inquilino.' });
+  }
 
   try {
     if (await tenantIdentityExists(id_departamento, req.body)) {
@@ -273,7 +326,7 @@ app.post('/api/registrarInquilino', async (req, res) => {
     );
     return res.json(200);
   } catch (error) {
-    if (error.code === 'ER_DUP_ENTRY') {
+    if (isDuplicateEntry(error)) {
       return res.status(409).json({ error: 'Ya existe este inquilino en el departamento seleccionado.' });
     }
     return respondWithDatabaseError(res, error, 'Error al registrar el inquilino');
@@ -292,7 +345,7 @@ const receiptSelect = `
     qe.descrpicion_extraordinaria AS concepto_cuota_extraordinaria,
     qr.monto_reserva AS cuota_reserva, qr.descripcion_reserva AS concepto_cuota_reserva,
     qa.monto_adeudos AS cuota_adeudos, qa.descripcion_adeudos AS concepto_cuota_adeudos,
-    tp.monto_total AS total_pagar, i.correo_inquilino
+    tp.monto_total AS total_pagar, i.correo_inquilino, r.pdf_storage_key
   FROM recibo r
   JOIN inquilino i ON i.id_inquilino = r.id_inquilino
   JOIN \`concepto de pago\` cp ON cp.id_concepto = r.id_concepto
@@ -330,15 +383,18 @@ app.post('/api/registrarRecibo', async (req, res) => {
     cuota_reserva,
     cuota_adeudos,
   ].map(value => Number(value || 0));
+  const receiptNumber = String(no_recibo || '').trim();
+  const total = amounts.reduce((sum, amount) => sum + amount, 0);
   if (
     !id_condominio || !id_departamento || !id_inquilino ||
-    !String(no_recibo || '').trim() || !fecha || !String(concepto_pago || '').trim() ||
-    amounts.some(value => !Number.isFinite(value) || value < 0)
+    !receiptNumber || !fecha || !String(concepto_pago || '').trim() ||
+    amounts.some(value => !Number.isFinite(value) || value < 0) ||
+    !Number.isFinite(total)
   ) {
     return res.status(400).json({ error: 'Completa los datos del recibo y verifica sus importes.' });
   }
   if (
-    exceedsColumnLength(no_recibo, 20) ||
+    exceedsColumnLength(receiptNumber, 20) ||
     [
       concepto_pago,
       concepto_cuota_ordinaria,
@@ -370,6 +426,16 @@ app.post('/api/registrarRecibo', async (req, res) => {
       await dbConnection.rollback();
       transactionStarted = false;
       return res.status(400).json({ error: 'El condominio, departamento e inquilino seleccionados no coinciden.' });
+    }
+
+    const [duplicateReceipts] = await dbConnection.query(
+      'SELECT id_recibo FROM recibo WHERE id_condominio = ? AND no_recibo = ? LIMIT 1',
+      [id_condominio, receiptNumber]
+    );
+    if (duplicateReceipts.length > 0) {
+      await dbConnection.rollback();
+      transactionStarted = false;
+      return res.status(409).json({ error: 'Ya existe ese número de recibo en el condominio seleccionado.' });
     }
 
     const [[administrator]] = await dbConnection.query(
@@ -406,7 +472,6 @@ app.post('/api/registrarRecibo', async (req, res) => {
       [String(concepto_pago).trim()]
     );
 
-    const total = amounts.reduce((sum, amount) => sum + amount, 0);
     const [totalRow] = await dbConnection.query(
       `INSERT INTO \`total pagado\`
         (id_ordinaria, id_extraordinaria, id_penalizacion, id_reserva, id_adeudos, monto_total)
@@ -418,7 +483,7 @@ app.post('/api/registrarRecibo', async (req, res) => {
         (no_recibo, id_condominio, id_departamento, id_inquilino, fecha, id_concepto,
          id_ordinaria, id_extraordinaria, id_penalizacion, id_reserva, id_adeudos, id_total, id_administrador)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [String(no_recibo).trim(), id_condominio, id_departamento, id_inquilino, fecha, concept.insertId,
+      [receiptNumber, id_condominio, id_departamento, id_inquilino, fecha, concept.insertId,
         ordinary.insertId, extraordinary.insertId, penalty.insertId, reserve.insertId, arrears.insertId,
         totalRow.insertId, administrator.id_administrador]
     );
@@ -450,22 +515,25 @@ app.post('/api/marcarReciboPagado', async (req, res) => {
     const [result] = await database.query(
       `UPDATE recibo
        SET estado_pago = 'pagado', fecha_pago = CURRENT_TIMESTAMP
-       WHERE id_recibo = ? AND estado_pago = 'pendiente'`,
+       WHERE id_recibo = ? AND estado_pago = 'pendiente' AND fecha <= CURRENT_DATE`,
       [id_recibo]
     );
     if (result.affectedRows === 0) {
       const [receipts] = await database.query(
-        'SELECT estado_pago FROM recibo WHERE id_recibo = ?',
+        'SELECT estado_pago, fecha > CURRENT_DATE AS fecha_futura FROM recibo WHERE id_recibo = ?',
         [id_recibo]
       );
       if (receipts.length === 0) {
         return res.status(404).json({ error: 'No se encontró el recibo seleccionado.' });
       }
+      if (receipts[0].estado_pago === 'pendiente' && receipts[0].fecha_futura) {
+        return res.status(409).json({ error: 'No se puede marcar como pagado un recibo antes de su fecha de emisión.' });
+      }
       return res.status(409).json({ error: 'Este recibo ya está marcado como pagado.' });
     }
 
     const [receipts] = await database.query(
-      `SELECT estado_pago, DATE_FORMAT(fecha_pago, '%Y-%m-%d %H:%i:%s') AS fecha_pago
+      `SELECT estado_pago, TO_CHAR(fecha_pago, 'YYYY-MM-DD HH24:MI:SS') AS fecha_pago
        FROM recibo WHERE id_recibo = ?`,
       [id_recibo]
     );
@@ -550,7 +618,7 @@ app.post('/api/enviarRecibosCorreoElectronico', async (req, res) => {
 
 app.post('/api/solicitarRestablecimiento', async (req, res) => {
   const email = String(req.body.correo_administrador || '').trim();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (!isValidEmail(email)) {
     return res.status(400).json({ error: 'Ingresa un correo electrónico válido.' });
   }
 
@@ -592,9 +660,9 @@ app.post('/api/solicitarRestablecimiento', async (req, res) => {
   try {
     await database.query(
       `INSERT INTO password_reset_tokens (id_administrador, token_hash, expires_at)
-       VALUES (?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 1 HOUR))
-       ON DUPLICATE KEY UPDATE token_hash = VALUES(token_hash),
-         expires_at = VALUES(expires_at), created_at = CURRENT_TIMESTAMP`,
+       VALUES (?, ?, CURRENT_TIMESTAMP + INTERVAL '1 hour')
+       ON CONFLICT (id_administrador) DO UPDATE SET token_hash = EXCLUDED.token_hash,
+         expires_at = EXCLUDED.expires_at, created_at = CURRENT_TIMESTAMP`,
       [administrator.id_administrador, tokenHash]
     );
   } catch (error) {
@@ -642,7 +710,7 @@ app.post('/api/restablecerContrasena', async (req, res) => {
 
     const [tokens] = await dbConnection.query(
       `SELECT id_administrador FROM password_reset_tokens
-       WHERE token_hash = ? AND expires_at > UTC_TIMESTAMP() FOR UPDATE`,
+       WHERE token_hash = ? AND expires_at > CURRENT_TIMESTAMP FOR UPDATE`,
       [hashResetToken(token)]
     );
     if (tokens.length === 0) {
@@ -763,6 +831,9 @@ app.post('/api/actualizarInquilino', async (req, res) => {
   ) {
     return res.status(400).json({ error: 'Selecciona un inquilino y verifica que sus datos estén completos y no superen 45 caracteres.' });
   }
+  if (!isValidEmail(correo_inquilino)) {
+    return res.status(400).json({ error: 'Ingresa un correo electrónico válido para el inquilino.' });
+  }
   try {
     const [tenants] = await database.query(
       'SELECT id_departamento FROM inquilino WHERE id_inquilino = ?',
@@ -778,11 +849,12 @@ app.post('/api/actualizarInquilino', async (req, res) => {
     await database.query(
       `UPDATE inquilino SET nombre_inquilino = ?, apellino_paterno_inquilino = ?,
         apellino_materno_inquilino = ?, correo_inquilino = ? WHERE id_inquilino = ?`,
-      [nombre_inquilino, apellino_paterno_inquilino, apellino_materno_inquilino, correo_inquilino, id_inquilino]
+      [String(nombre_inquilino).trim(), String(apellino_paterno_inquilino).trim(),
+        String(apellino_materno_inquilino).trim(), String(correo_inquilino).trim(), id_inquilino]
     );
     return res.json(200);
   } catch (error) {
-    if (error.code === 'ER_DUP_ENTRY') {
+    if (isDuplicateEntry(error)) {
       return res.status(409).json({ error: 'Ya existe este inquilino en el departamento seleccionado.' });
     }
     return respondWithDatabaseError(res, error, 'Error al actualizar el inquilino');
@@ -812,7 +884,7 @@ app.post('/api/liberarInquilino', async (req, res) => {
     }
     return res.json(200);
   } catch (error) {
-    if (error.code === 'ER_BAD_NULL_ERROR') {
+    if (error.code === '23502' || error.code === 'ER_BAD_NULL_ERROR') {
       return res.status(409).json({
         error: 'La base de datos todavía no permite liberar departamentos. Aplica la migración 004_allow_unassigned_tenants.sql.',
       });
@@ -829,7 +901,7 @@ app.post('/api/getAdmin', async (req, res) => {
     const [administrators] = await database.query(
       `SELECT id_administrador, contraseña_administrador
        FROM administrador WHERE correo_administrador = ? LIMIT 1`,
-      [correo_administrador]
+      [String(correo_administrador || '').trim()]
     );
     if (administrators.length === 0) {
       return res.json(0);
@@ -846,7 +918,17 @@ app.post('/api/getAdmin', async (req, res) => {
         [await hashPassword(String(contraseña_administrador)), administrator.id_administrador]
       );
     }
-    return res.json(1);
+    const token = jwt.sign(
+      { sub: String(administrator.id_administrador) },
+      jwtSecret,
+      {
+        algorithm: 'HS256',
+        expiresIn: '8h',
+        issuer: 'bureau-manager',
+        audience: 'bureau-manager-web',
+      }
+    );
+    return res.json({ token });
   } catch (error) {
     return respondWithDatabaseError(res, error, 'Error al validar la cuenta');
   }
@@ -860,6 +942,189 @@ app.get('/api/getRecibos', (req, res) => {
       return res.json(results);
     }
   });
+});
+
+const liveReceiptQuery = rawSql(`
+    SELECT r.id_recibo, r.no_recibo, r.id_condominio, r.id_departamento, r.id_inquilino,
+      r.estado_pago, r.fecha_pago,
+      CONCAT_WS(' ', i.nombre_inquilino, i.apellino_paterno_inquilino, i.apellino_materno_inquilino)
+        AS nombre_completo_inquilino,
+      r.fecha, cp.descripcion_concepto AS concepto_pago, tp.monto_total AS total_pagar
+    FROM recibo r
+    JOIN inquilino i ON i.id_inquilino = r.id_inquilino
+    JOIN "concepto de pago" cp ON cp.id_concepto = r.id_concepto
+    JOIN "total pagado" tp ON tp.id_total = r.id_total
+    ORDER BY r.fecha DESC, r.id_recibo DESC
+`);
+
+app.post('/api/recibos/live', async (req, res) => {
+  if (!realtime || !process.env.NEON_REALTIME_URL) {
+    return res.status(503).json({ error: 'Neon Realtime no está configurado en esta rama.' });
+  }
+  try {
+    const sealedQuery = await realtime.seal({ query: liveReceiptQuery });
+    return res.json({ sealedQuery, realtimeUrl: process.env.NEON_REALTIME_URL });
+  } catch (error) {
+    console.error('No se pudo sellar la consulta de recibos en vivo:', error);
+    return res.status(502).json({ error: 'No se pudo iniciar la actualización en vivo de recibos.' });
+  }
+});
+
+app.get('/api/ai/models', async (req, res) => {
+  const { NEON_AI_GATEWAY_BASE_URL, NEON_AI_GATEWAY_TOKEN } = process.env;
+  if (!NEON_AI_GATEWAY_BASE_URL || !NEON_AI_GATEWAY_TOKEN) {
+    return res.status(503).json({ error: 'El AI Gateway no está configurado en esta rama.' });
+  }
+
+  try {
+    const response = await fetch(`${NEON_AI_GATEWAY_BASE_URL.replace(/\/+$/, '')}/v1/models`, {
+      headers: { Authorization: `Bearer ${NEON_AI_GATEWAY_TOKEN}` },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) {
+      console.error('Neon AI Gateway model discovery failed:', response.status);
+      return res.status(502).json({ error: 'No se pudo consultar la disponibilidad del AI Gateway.' });
+    }
+
+    const catalog = await response.json();
+    const models = Array.isArray(catalog.data) ? catalog.data : [];
+    const enabled = models.filter(model => model.enabled === true && typeof model.id === 'string');
+    const unavailable = models.find(model => model.recovery_url);
+    return res.json({
+      models: enabled.map(({ id, name }) => ({ id, name: name || id })),
+      recoveryUrl: unavailable?.recovery_url || null,
+    });
+  } catch (error) {
+    console.error('Neon AI Gateway model discovery failed:', error.message);
+    return res.status(502).json({ error: 'No se pudo consultar la disponibilidad del AI Gateway.' });
+  }
+});
+
+const assistantRequests = new Map();
+app.post('/api/ai/assistant', async (req, res) => {
+  const question = String(req.body.question || '').trim();
+  if (!question || question.length > 2000) {
+    return res.status(400).json({ error: 'Escribe una pregunta de hasta 2000 caracteres.' });
+  }
+
+  const now = Date.now();
+  const recentRequests = (assistantRequests.get(req.authAdminId) || []).filter(time => now - time < 60000);
+  if (recentRequests.length >= 5) {
+    assistantRequests.set(req.authAdminId, recentRequests);
+    return res.status(429).json({ error: 'Espera un minuto antes de enviar más preguntas.' });
+  }
+  assistantRequests.set(req.authAdminId, [...recentRequests, now]);
+
+  const { NEON_AI_GATEWAY_BASE_URL, NEON_AI_GATEWAY_TOKEN, NEON_AI_MODEL } = process.env;
+  if (!NEON_AI_GATEWAY_BASE_URL || !NEON_AI_GATEWAY_TOKEN) {
+    return res.status(503).json({ error: 'El AI Gateway no está configurado en esta rama.' });
+  }
+
+  try {
+    const baseUrl = NEON_AI_GATEWAY_BASE_URL.replace(/\/+$/, '');
+    const catalogResponse = await fetch(`${baseUrl}/v1/models`, {
+      headers: { Authorization: `Bearer ${NEON_AI_GATEWAY_TOKEN}` },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!catalogResponse.ok) {
+      console.error('Neon AI Gateway model discovery failed:', catalogResponse.status);
+      return res.status(502).json({ error: 'No se pudo consultar la disponibilidad del AI Gateway.' });
+    }
+
+    const catalog = await catalogResponse.json();
+    const enabledModels = Array.isArray(catalog.data)
+      ? catalog.data.filter(model => model.enabled === true && typeof model.id === 'string')
+      : [];
+    if (enabledModels.length === 0) {
+      return res.status(503).json({
+        error: 'Neon no tiene modelos habilitados. Habilita créditos del AI Gateway en Billing para usar el asistente.',
+      });
+    }
+
+    const requestedModel = String(req.body.model || '').trim();
+    const model = enabledModels.find(candidate => candidate.id === requestedModel) ||
+      enabledModels.find(candidate => candidate.id === NEON_AI_MODEL) ||
+      enabledModels[0];
+    const completion = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${NEON_AI_GATEWAY_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: model.id,
+        max_tokens: 500,
+        messages: [
+          {
+            role: 'system',
+            content: 'Eres un asistente de ayuda para el uso de Bureau-Manager, un sistema para administrar condominios, inquilinos y recibos. Responde en español, de forma clara y breve. No tienes acceso a los datos del sistema; no pidas contraseñas, correos reales ni datos personales.',
+          },
+          { role: 'user', content: question },
+        ],
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!completion.ok) {
+      let payload = {};
+      try {
+        payload = await completion.json();
+      } catch (error) {
+        console.error('Neon AI Gateway returned a non-JSON error response:', error.message);
+      }
+      console.error('Neon AI Gateway completion failed:', completion.status, payload.error?.code || 'unknown');
+      if (completion.status === 403 && payload.error?.unavailable_reason === 'paid_plan_required') {
+        return res.status(503).json({
+          error: 'No hay créditos habilitados para el AI Gateway. Añade créditos en la página Billing de Neon.',
+        });
+      }
+      return res.status(502).json({ error: 'El AI Gateway no pudo responder. Inténtalo de nuevo más tarde.' });
+    }
+
+    const payload = await completion.json();
+    const answer = payload.choices?.[0]?.message?.content;
+    if (typeof answer !== 'string' || !answer.trim()) {
+      return res.status(502).json({ error: 'El AI Gateway devolvió una respuesta vacía. Inténtalo de nuevo.' });
+    }
+    return res.json({ answer: answer.trim(), model: model.id });
+  } catch (error) {
+    console.error('Neon AI Gateway completion failed:', error.message);
+    return res.status(502).json({ error: 'No se pudo conectar con el AI Gateway. Inténtalo de nuevo.' });
+  }
+});
+
+app.get('/api/recibos/:id/pdf', async (req, res) => {
+  const receiptId = Number(req.params.id);
+  if (!Number.isSafeInteger(receiptId) || receiptId < 1) {
+    return res.status(400).json({ error: 'Selecciona un recibo válido.' });
+  }
+
+  try {
+    const [receipts] = await database.query(
+      `${receiptSelect} WHERE r.id_recibo = ?`,
+      [receiptId]
+    );
+    if (receipts.length === 0) return res.status(404).json({ error: 'No se encontró el recibo seleccionado.' });
+
+    let pdf;
+    if (receipts[0].pdf_storage_key) {
+      pdf = await getReceiptPdf(receipts[0].pdf_storage_key);
+    } else {
+      pdf = await crearPDF(receipts[0]);
+      const storageKey = await saveReceiptPdf(receiptId, pdf);
+      await database.query(
+        'UPDATE recibo SET pdf_storage_key = ? WHERE id_recibo = ?',
+        [storageKey, receiptId]
+      );
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="recibo-${receiptId}.pdf"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.send(Buffer.from(pdf));
+  } catch (error) {
+    console.error(`No se pudo generar o guardar el PDF del recibo ${receiptId}:`, error);
+    return res.status(502).json({ error: 'No se pudo guardar o descargar el PDF del recibo. Inténtalo de nuevo.' });
+  }
 });
 
 app.get('/api/getCondominios', (req, res) => {
@@ -928,6 +1193,16 @@ app.get('/api/getInfoCondominio', (req, res) => {
       }
     }
   );
+});
+
+app.get('/healthz', async (req, res) => {
+  try {
+    await database.query('SELECT 1');
+    return res.json({ status: 'ok', database: 'connected' });
+  } catch (error) {
+    console.error('Health check could not reach Neon PostgreSQL:', error.message);
+    return res.status(503).json({ status: 'error', database: 'unavailable' });
+  }
 });
 
 const PORT = process.env.PORT || 4001;

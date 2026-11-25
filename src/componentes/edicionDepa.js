@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import axios from 'axios';
+import axios from '../api';
 
 function EditoEdificio() {
 
@@ -16,7 +16,7 @@ function EditoEdificio() {
 
 
   useEffect(() => {
-    axios.get('http://localhost:4001/api/getEdificios')
+    axios.get('/api/getEdificios')
       .then(response => {
         if(response.data.length === 0){
           setEdificios([]);
@@ -36,7 +36,7 @@ function EditoEdificio() {
         const selectedEdifcio = response.data[0].id_edificio;
         const diccionario = { id_edificio: selectedEdifcio };
   
-        axios.post(`http://localhost:4001/api/getDepartamentosbyEdificios`,diccionario)
+        axios.post('/api/getDepartamentosbyEdificios', diccionario)
           .then(resultado => {
             if (resultado.data.length === 0) {
               setDepartamentos([]);
@@ -77,7 +77,7 @@ function EditoEdificio() {
     if (selectedEdificio) {
         const diccionario = { id_edificio: selectedEdificio.id_edificio };
   
-        axios.post(`http://localhost:4001/api/getDepartamentosbyEdificios`,diccionario)
+        axios.post('/api/getDepartamentosbyEdificios', diccionario)
           .then(resultado => {
             if (resultado.data.length === 0) {
               setDepartamentos([]);
@@ -125,7 +125,7 @@ function EditoEdificio() {
         alert('Selecciona un departamento e indica su número.');
         return;
       }
-      const resultado = await axios.post('http://localhost:4001/api/actualizarDepartamento', formulario);
+      const resultado = await axios.post('/api/actualizarDepartamento', formulario);
       if (resultado.data === 200) {
         setVisible(true);
       } else {

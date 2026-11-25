@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router,Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router,Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import './App.css';
 import Formulario from './componentes/iniciosesion.js';
 import RegistrarCuenta from './componentes/registroCuenta.js';
@@ -18,8 +18,11 @@ import MenuInquilino from "./componentes/menuInquilino.js";
 import EditoInquilino from "./componentes/edicionInquilino.js";
 import NuevoRecibo from "./componentes/nuevoRecibo.js";
 import VerRecibo from "./componentes/verRecibos.js";
+import Asistente from './componentes/asistente.js';
 
-
+function RequireAuth() {
+  return window.sessionStorage.getItem('authToken') ? <Outlet /> : <Navigate to="/" replace />;
+}
 
 function App() {
   return (
@@ -29,26 +32,29 @@ function App() {
         <Route path="/RegistrarCuenta" element={<RegistrarCuenta />}  />
         <Route path="/RecuperarContrasena" element={<RecuperarContrasena />}  />
         <Route path="/RestablecerContrasena" element={<RestablecerContrasena />}  />
-        <Route path="/MenuPrincipal" element={<MenuInicial />}  />
-        <Route path="/EdicionyRegistro" element={<EdicionyRegistro />}  />
-        <Route path="/NuevoCondominio" element={<NuevoCondominio />}  />
-        <Route path="/EditoCondominio" element={<EditoCondominio />}  />
-        <Route path="/NuevoEdificio" element={<NuevoEdificio />}  />
-        <Route path="/EditoEdificio" element={<EditoEdificio />}  />
-        <Route path="/NuevoDepartamento" element={<NuevoDepartamento />}  />
-        <Route path="/EditoDepartamento" element={<EditoDepartamento />}  />
-        <Route path="/NuevoInquilino" element={<NuevoInquilino />}  />
-        <Route path="/MenuInquilino" element={<MenuInquilino />}  />
-        <Route path="/EditoInquilino" element={<EditoInquilino />}  />
-        <Route path="/NuevoRecibo" element={<NuevoRecibo />}  />
-        <Route path="/VerRecibo" element={<VerRecibo />}  />
+        <Route element={<RequireAuth />}>
+          <Route path="/MenuPrincipal" element={<MenuInicial />} />
+          <Route path="/EdicionyRegistro" element={<EdicionyRegistro />} />
+          <Route path="/NuevoCondominio" element={<NuevoCondominio />} />
+          <Route path="/EditoCondominio" element={<EditoCondominio />} />
+          <Route path="/NuevoEdificio" element={<NuevoEdificio />} />
+          <Route path="/EditoEdificio" element={<EditoEdificio />} />
+          <Route path="/NuevoDepartamento" element={<NuevoDepartamento />} />
+          <Route path="/EditoDepartamento" element={<EditoDepartamento />} />
+          <Route path="/NuevoInquilino" element={<NuevoInquilino />} />
+          <Route path="/MenuInquilino" element={<MenuInquilino />} />
+          <Route path="/EditoInquilino" element={<EditoInquilino />} />
+          <Route path="/NuevoRecibo" element={<NuevoRecibo />} />
+          <Route path="/VerRecibo" element={<VerRecibo />} />
+          <Route path="/Asistente" element={<Asistente />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
   );
 }
 
 export default App;
-
 
 
 

@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
+    "@neon/config": "^1.14.7",
+    "@neon/env": "^2.1.10",
+    "@neon/realtime": "^0.2.1",
+    "@neon/realtime-react": "^0.2.0",
     "@testing-library/jest-dom": "^5.16.5",
     "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^13.5.0",
@@ -33,11 +37,14 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
-    "start": "react-scripts start",
+    "start": "node scripts/start.js",
+    "client": "react-scripts start",
+    "server": "npm --prefix back start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },
+  "proxy": "http://localhost:4001",
   "eslintConfig": {
     "extends": [
       "react-app",

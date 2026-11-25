@@ -20,11 +20,20 @@ function MenuInicial() {
                 <Link to="/MenuInquilino">
                     <button className="mi-boton">Administrar Inquilinos</button>
                 </Link>
+                <Link to="/Asistente">
+                    <button className="mi-boton">Asistente</button>
+                </Link>
             </div>
             <div className="botones-container">
-            <Link to="/">
-            <button type="submit">Cerrar Sesion</button>
-            </Link>
+              <button
+                type="button"
+                onClick={() => {
+                  window.sessionStorage.removeItem('authToken');
+                  window.location.assign('/');
+                }}
+              >
+                Cerrar Sesión
+              </button>
             </div>
 
           </form>   

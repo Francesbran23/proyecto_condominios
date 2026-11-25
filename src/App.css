@@ -299,6 +299,31 @@ button[type="submit"] {
   margin-top: 18px;
 }
 
+.recibos-filtros {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  align-items: end;
+  gap: 14px;
+  margin: 0 0 8px;
+}
+
+.recibos-filtros .select-item {
+  gap: 7px;
+}
+
+.recibos-filtros button {
+  width: auto;
+  min-width: 140px;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.recibos-resumen {
+  margin: 8px 0 14px;
+  text-align: left;
+  font-size: 0.9rem;
+}
+
 .select-item {
   display: flex;
   min-width: 0;
@@ -422,6 +447,14 @@ button.button-marcar-pagado {
   .select-container {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .recibos-filtros {
+    grid-template-columns: 1fr;
+  }
+
+  .recibos-filtros button {
+    width: 100%;
   }
 
   table {

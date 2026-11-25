@@ -28,7 +28,8 @@ CREATE TABLE `adeudos anteriores` (
   `id_adeudos` int NOT NULL AUTO_INCREMENT,
   `monto_adeudos` double NOT NULL,
   `descripcion_adeudos` varchar(45) NOT NULL,
-  PRIMARY KEY (`id_adeudos`)
+  PRIMARY KEY (`id_adeudos`),
+  CONSTRAINT `chk_adeudos_monto_no_negativo` CHECK (`monto_adeudos` >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -55,7 +56,14 @@ CREATE TABLE `administrador` (
   `apellido_materno_administrador` varchar(30) NOT NULL,
   `correo_administrador` varchar(45) NOT NULL,
   `contraseña_administrador` varchar(255) NOT NULL,
-  PRIMARY KEY (`id_administrador`)
+  PRIMARY KEY (`id_administrador`),
+  UNIQUE KEY `uq_administrador_correo` (`correo_administrador`),
+  CONSTRAINT `chk_administrador_correo` CHECK (
+    `correo_administrador` = TRIM(`correo_administrador`)
+    AND `correo_administrador` REGEXP '^[^@[:space:]]+@[^@[:space:]]+[.][^@[:space:]]+$'
+  ),
+  CONSTRAINT `chk_administrador_contrasena_longitud` CHECK (CHAR_LENGTH(`contraseña_administrador`) >= 8),
+  CONSTRAINT `chk_administrador_nombre` CHECK (CHAR_LENGTH(TRIM(`nombre_administrador`)) > 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -80,6 +88,7 @@ CREATE TABLE `password_reset_tokens` (
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id_administrador`),
   UNIQUE KEY `uq_password_reset_token_hash` (`token_hash`),
+  CONSTRAINT `chk_password_reset_token_hash` CHECK (`token_hash` REGEXP '^[0-9a-f]{64}$'),
   CONSTRAINT `fk_password_reset_administrador`
     FOREIGN KEY (`id_administrador`) REFERENCES `administrador` (`id_administrador`)
     ON DELETE CASCADE
@@ -119,7 +128,8 @@ CREATE TABLE `condominio` (
   `id_condominio` int NOT NULL AUTO_INCREMENT,
   `nombre_condominio` varchar(45) NOT NULL,
   `direccion_condominio` varchar(100) NOT NULL,
-  PRIMARY KEY (`id_condominio`)
+  PRIMARY KEY (`id_condominio`),
+  UNIQUE KEY `uq_condominio_nombre` (`nombre_condominio`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -143,7 +153,8 @@ CREATE TABLE `cuota de fondo de reserva` (
   `id_reserva` int NOT NULL AUTO_INCREMENT,
   `monto_reserva` double NOT NULL,
   `descripcion_reserva` varchar(45) NOT NULL,
-  PRIMARY KEY (`id_reserva`)
+  PRIMARY KEY (`id_reserva`),
+  CONSTRAINT `chk_reserva_monto_no_negativo` CHECK (`monto_reserva` >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -167,7 +178,8 @@ CREATE TABLE `cuota de penalización` (
   `id_penalizacion` int NOT NULL AUTO_INCREMENT,
   `monto_penalizacion` double NOT NULL,
   `descripcion_penalizacion` varchar(45) NOT NULL DEFAULT '',
-  PRIMARY KEY (`id_penalizacion`)
+  PRIMARY KEY (`id_penalizacion`),
+  CONSTRAINT `chk_penalizacion_monto_no_negativo` CHECK (`monto_penalizacion` >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -191,7 +203,8 @@ CREATE TABLE `cuota extraordinaria` (
   `id_extraordinaria` int NOT NULL AUTO_INCREMENT,
   `monto_extraordinaria` double NOT NULL,
   `descrpicion_extraordinaria` varchar(45) NOT NULL,
-  PRIMARY KEY (`id_extraordinaria`)
+  PRIMARY KEY (`id_extraordinaria`),
+  CONSTRAINT `chk_extraordinaria_monto_no_negativo` CHECK (`monto_extraordinaria` >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -215,7 +228,8 @@ CREATE TABLE `cuota ordinaria` (
   `id_ordinaria` int NOT NULL AUTO_INCREMENT,
   `monto_ordinaria` double NOT NULL,
   `descripcion_ordinaria` varchar(45) NOT NULL DEFAULT '',
-  PRIMARY KEY (`id_ordinaria`)
+  PRIMARY KEY (`id_ordinaria`),
+  CONSTRAINT `chk_ordinaria_monto_no_negativo` CHECK (`monto_ordinaria` >= 0)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -240,6 +254,7 @@ CREATE TABLE `departamento` (
   `id_edificio` int NOT NULL,
   `numero_departamento` varchar(10) NOT NULL,
   PRIMARY KEY (`id_departamento`),
+  UNIQUE KEY `uq_departamento_edificio_numero` (`id_edificio`, `numero_departamento`),
   KEY `id_edificio_idx` (`id_edificio`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -294,6 +309,7 @@ CREATE TABLE `edificio` (
   `id_condominio` int NOT NULL,
   `nombre_edificio` varchar(20) NOT NULL,
   PRIMARY KEY (`id_edificio`),
+  UNIQUE KEY `uq_edificio_condominio_nombre` (`id_condominio`, `nombre_edificio`),
   KEY `id_condominio_idx` (`id_condominio`),
   CONSTRAINT `id_condominio` FOREIGN KEY (`id_condominio`) REFERENCES `condominio` (`id_condominio`) ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
@@ -354,6 +370,10 @@ CREATE TABLE `inquilino` (
   PRIMARY KEY (`id_inquilino`),
   UNIQUE KEY `uq_inquilino_departamento_identidad` (`id_departamento`, `nombre_inquilino`, `apellino_paterno_inquilino`, `apellino_materno_inquilino`, `correo_inquilino`),
   KEY `id_departamento_idx` (`id_departamento`),
+  CONSTRAINT `chk_inquilino_correo` CHECK (
+    `correo_inquilino` = TRIM(`correo_inquilino`)
+    AND `correo_inquilino` REGEXP '^[^@[:space:]]+@[^@[:space:]]+[.][^@[:space:]]+$'
+  ),
   CONSTRAINT `id_departamento` FOREIGN KEY (`id_departamento`) REFERENCES `departamento` (`id_departamento`) ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -395,7 +415,14 @@ CREATE TABLE `recibo` (
   KEY `id_condominio_idx` (`id_condominio`),
   KEY `id_departamento_idx` (`id_departamento`),
   KEY `id_inquilino_idx` (`id_inquilino`),
-  KEY `no_recibo_idx` (`no_recibo`),
+  UNIQUE KEY `uq_recibo_condominio_numero` (`id_condominio`, `no_recibo`),
+  UNIQUE KEY `uq_recibo_concepto` (`id_concepto`),
+  UNIQUE KEY `uq_recibo_ordinaria` (`id_ordinaria`),
+  UNIQUE KEY `uq_recibo_extraordinaria` (`id_extraordinaria`),
+  UNIQUE KEY `uq_recibo_penalizacion` (`id_penalizacion`),
+  UNIQUE KEY `uq_recibo_reserva` (`id_reserva`),
+  UNIQUE KEY `uq_recibo_adeudos` (`id_adeudos`),
+  UNIQUE KEY `uq_recibo_total` (`id_total`),
   KEY `id_concepto_idx` (`id_concepto`),
   KEY `id_ordinaria_idx` (`id_ordinaria`),
   KEY `id_extraordinaria_idx` (`id_extraordinaria`),
@@ -404,6 +431,12 @@ CREATE TABLE `recibo` (
   KEY `id_adeudos_idx` (`id_adeudos`),
   KEY `id_total_idx` (`id_total`),
   KEY `id_administrador_idx` (`id_administrador`),
+  CONSTRAINT `chk_recibo_numero_no_vacio` CHECK (CHAR_LENGTH(TRIM(`no_recibo`)) > 0),
+  CONSTRAINT `chk_recibo_pago_fecha_estado` CHECK (
+    (`estado_pago` = 'pagado' AND `fecha_pago` IS NOT NULL)
+    OR (`estado_pago` = 'pendiente' AND `fecha_pago` IS NULL)
+  ),
+  CONSTRAINT `chk_recibo_fecha_pago_no_anticipada` CHECK (`fecha_pago` IS NULL OR `fecha_pago` >= CAST(`fecha` AS DATETIME)),
   CONSTRAINT `adeudos` FOREIGN KEY (`id_adeudos`) REFERENCES `adeudos anteriores` (`id_adeudos`) ON UPDATE CASCADE,
   CONSTRAINT `administrador` FOREIGN KEY (`id_administrador`) REFERENCES `administrador` (`id_administrador`) ON UPDATE CASCADE,
   CONSTRAINT `concepto` FOREIGN KEY (`id_concepto`) REFERENCES `concepto de pago` (`id_concepto`) ON UPDATE CASCADE,
@@ -442,6 +475,7 @@ CREATE TABLE `total pagado` (
   `id_adeudos` int NOT NULL,
   `monto_total` double NOT NULL,
   PRIMARY KEY (`id_total`),
+  CONSTRAINT `chk_total_monto_no_negativo` CHECK (`monto_total` >= 0),
   KEY `id_ordinaria_idx` (`id_ordinaria`),
   KEY `id_extraordinaria_idx` (`id_extraordinaria`),
   KEY `id_penalizacion_idx` (`id_penalizacion`),
