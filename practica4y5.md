@@ -399,9 +399,8 @@ Un error dentro de una transacción **solo deshace la sentencia que falló**; la
 
 ## 2.5 ALMACÉN ASIGNADO
 
-**Estado:** ❌ No resuelto — necesita su fork.
+**Estado:** ❌ No resuelto en totalidad
 
-Hay guía y plantillas disponibles en la sección 3.4 del documento original.
 
 ---
 
@@ -461,7 +460,6 @@ make comparar                                                             # tiem
 git checkout main && git pull
 git checkout -b practica4-5
 
-# Cada integrante, en días distintos:
 git add practica4/migraciones/001-dominios.sql && git commit -m "P4: dominios y restricciones CHECK/UNIQUE"
 git add practica4/poblar && git commit -m "P4: script de carga repetible"
 git add practica5 && git commit -m "P5: referencias, DML y transacciones"
