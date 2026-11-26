@@ -3,6 +3,12 @@ import { Link } from 'react-router-dom';
 import axios from '../api';
 import { createRealtimeClient } from '@neon/realtime/client';
 
+function formatReceiptDate(value) {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? '' : value.toISOString().slice(0, 10);
+  }
+  return String(value ?? '').slice(0, 10);
+}
 
 function VerRecibo() {
 
@@ -199,7 +205,7 @@ function VerRecibo() {
     .sort((a, b) => a.localeCompare(b, 'es'));
   const registrosFiltrados = registros.filter(recibo => (
     (!filtros.inquilino || recibo.nombre_completo_inquilino === filtros.inquilino) &&
-    (!filtros.fecha || String(recibo.fecha).slice(0, 10) === filtros.fecha) &&
+    (!filtros.fecha || formatReceiptDate(recibo.fecha) === filtros.fecha) &&
     (!filtros.concepto || recibo.concepto_pago === filtros.concepto)
   ));
 
@@ -213,7 +219,7 @@ function VerRecibo() {
     opcionesRegistro = registrosFiltrados.map(c => (
   <tr key={c.id_recibo}>
     <td>{c.nombre_completo_inquilino}</td>
-    <td>{c.fecha}</td>
+    <td>{formatReceiptDate(c.fecha)}</td>
     <td>{c.no_recibo}</td>
     <td>{c.concepto_pago}</td>
     <td>{c.total_pagar}</td>
