@@ -1,7 +1,6 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
-const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { promisify } = require('util');
@@ -14,6 +13,7 @@ const jwtSecret = process.env.AUTH_JWT_SECRET;
 if (!jwtSecret || jwtSecret.length < 32) {
   throw new Error('AUTH_JWT_SECRET must contain at least 32 characters and remain server-side.');
 }
+const frontendOrigin = new URL(process.env.FRONTEND_URL || 'http://localhost:3000').origin;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const uniqueConstraintMessages = {
   uq_administrador_correo: 'Ya existe una cuenta con ese correo electrónico.',
@@ -57,18 +57,34 @@ function hashResetToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
-function createMailTransporter() {
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD } = process.env;
-  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASSWORD) {
-    return null;
-  }
+function hasMailConfiguration() {
+  return Boolean(process.env.RESEND_API_KEY && process.env.RESEND_FROM);
+}
 
-  return nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: Number(SMTP_PORT || 587),
-    secure: Number(SMTP_PORT) === 465,
-    auth: { user: SMTP_USER, pass: SMTP_PASSWORD },
+async function sendEmail({ to, subject, text, attachments }) {
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: process.env.RESEND_FROM,
+      to,
+      subject,
+      text,
+      ...(attachments ? { attachments } : {}),
+    }),
+    signal: AbortSignal.timeout(15000),
   });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail = typeof result.message === 'string' ? `: ${result.message}` : '';
+    const error = new Error(`Resend API returned HTTP ${response.status}${detail}`);
+    error.status = response.status;
+    throw error;
+  }
+  return result;
 }
 
 function respondWithDatabaseError(res, error, message) {
@@ -139,7 +155,7 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: frontendOrigin,
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
@@ -545,9 +561,8 @@ app.post('/api/marcarReciboPagado', async (req, res) => {
 
 app.post('/api/enviarRecibosCorreoElectronico', async (req, res) => {
   const ids = req.body;
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM } = process.env;
-  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASSWORD) {
-    return res.status(503).json({ error: 'Configura SMTP_HOST, SMTP_USER y SMTP_PASSWORD en back/.env para enviar correos.' });
+  if (!hasMailConfiguration()) {
+    return res.status(503).json({ error: 'El servicio de correo no está configurado. Contacta al administrador del sistema.' });
   }
   if (!Array.isArray(ids) || ids.length === 0) {
     return res.status(400).json({ error: 'Selecciona al menos un recibo.' });
@@ -578,40 +593,32 @@ app.post('/api/enviarRecibosCorreoElectronico', async (req, res) => {
 
   let sentCount = 0;
   try {
-    const transporter = nodemailer.createTransport({
-      host: SMTP_HOST,
-      port: Number(SMTP_PORT || 587),
-      secure: Number(SMTP_PORT) === 465,
-      auth: { user: SMTP_USER, pass: SMTP_PASSWORD },
-    });
-    await transporter.verify();
-
     for (const receipt of receipts) {
       const pdfBytes = await crearPDF(receipt);
-      await transporter.sendMail({
-        from: SMTP_FROM || SMTP_USER,
+      await sendEmail({
         to: receipt.correo_inquilino,
         subject: `Recibo de pago ${receipt.no_recibo}`,
         text: 'Adjuntamos su recibo de pago.',
-        attachments: [{ filename: `recibo-${receipt.no_recibo}.pdf`, content: pdfBytes }],
+        attachments: [{
+          filename: `recibo-${receipt.no_recibo}.pdf`,
+          content: pdfBytes.toString('base64'),
+        }],
       });
       sentCount += 1;
     }
     return res.json({ sent: sentCount });
   } catch (error) {
-    console.error('Error al enviar los recibos por correo', error);
+    console.error('Error al enviar los recibos por correo', {
+      status: error.status,
+      message: error.message,
+    });
     if (sentCount > 0) {
       return res.status(502).json({
-        error: `Se enviaron ${sentCount} de ${receipts.length} recibos. Falló el envío siguiente; revisa la configuración SMTP.`,
-      });
-    }
-    if (error.code === 'EAUTH') {
-      return res.status(502).json({
-        error: 'Gmail rechazó la autenticación. Configura SMTP_USER con tu cuenta y SMTP_PASSWORD con una contraseña de aplicación de Google.',
+        error: `Se enviaron ${sentCount} de ${receipts.length} recibos. Falló el envío siguiente; revisa los registros del servicio de correo.`,
       });
     }
     return res.status(502).json({
-      error: 'No se pudo conectar con Gmail. Revisa SMTP_HOST, SMTP_PORT y la conexión a internet.',
+      error: 'No se pudo enviar el correo. Inténtalo más tarde.',
     });
   }
 });
@@ -622,18 +629,10 @@ app.post('/api/solicitarRestablecimiento', async (req, res) => {
     return res.status(400).json({ error: 'Ingresa un correo electrónico válido.' });
   }
 
-  const transporter = createMailTransporter();
-  if (!transporter) {
+  if (!hasMailConfiguration()) {
     return res.status(503).json({
       error: 'El envío de correo no está configurado. Contacta al administrador del sistema.',
     });
-  }
-
-  try {
-    await transporter.verify();
-  } catch (error) {
-    console.error('No se pudo verificar el servicio de correo para restablecimiento:', error);
-    return res.status(502).json({ error: 'No se pudo enviar el correo. Inténtalo más tarde.' });
   }
 
   let administrators;
@@ -672,15 +671,17 @@ app.post('/api/solicitarRestablecimiento', async (req, res) => {
   const frontendUrl = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/+$/, '');
   const resetUrl = `${frontendUrl}/RestablecerContrasena?token=${encodeURIComponent(token)}`;
   try {
-    await transporter.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    await sendEmail({
       to: administrator.correo_administrador,
       subject: 'Restablece tu contraseña de Bureau-Manager',
       text: `Recibimos una solicitud para restablecer la contraseña de tu cuenta. Abre este enlace dentro de la próxima hora para elegir una nueva contraseña:\n\n${resetUrl}\n\nSi no solicitaste este cambio, puedes ignorar este correo.`,
     });
     return res.json(genericResponse);
   } catch (error) {
-    console.error('Error al enviar el correo de restablecimiento:', error);
+    console.error('Error al enviar el correo de restablecimiento:', {
+      status: error.status,
+      message: error.message,
+    });
     try {
       await database.query(
         'DELETE FROM password_reset_tokens WHERE id_administrador = ? AND token_hash = ?',
