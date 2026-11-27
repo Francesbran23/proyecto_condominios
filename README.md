@@ -1,94 +1,402 @@
-# Getting Started with Create React App
+# Bureau Manager
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Bureau Manager es una aplicacion web para administrar condominios, edificios,
+departamentos, inquilinos y recibos de pago. Incluye autenticacion propia,
+recuperacion de contrasena, carga privada de PDF, actualizacion en vivo y
+asistente de IA.
 
-## Running the app with Neon
+## Arquitectura desplegada
 
-The backend uses Neon PostgreSQL through `DATABASE_URL` from the project-root `.env.local` file created by the Neon CLI. That file is ignored by Git; do not commit or share it.
+| Componente | Servicio usado | Ejemplo |
+|---|---|---|
+| Base de datos PostgreSQL | Neon | Rama `production` |
+| Backend Express y API | Render | `https://condominios-urs.onrender.com` |
+| Frontend React | Vercel | `https://proyecto-condominios-g2jf.vercel.app` |
+| Correos transaccionales | Resend | Recibos y restablecimiento de contrasena |
+| Archivos PDF privados | Neon Object Storage | Bucket privado `receipts` |
+| Datos de recibos en vivo | Neon Realtime | Consulta sellada |
+| Documentacion SQL y normalizacion | [practicanomal.md](./practicanomal.md) | Ejercicios en RelaX y SQL |
 
-1. The Neon `production` branch is configured in `neon.ts`. The schema migration creates the application tables and does not copy records from any existing MySQL database.
-2. From `back/`, run `npm run db:migrate` to create the PostgreSQL tables. The migration is safe to rerun.
-3. Configure `RESEND_API_KEY` and `RESEND_FROM` for password-reset and receipt emails. Create a Resend API key with sending access, verify a domain you own in Resend, and use a sender address on that verified domain. Keep the API key private. On Render, set both values in the backend service's Environment settings.
-4. Run `npm start` from `back/` to start the API on port 4001, then run `npm start` from the project root to start React on port 3000.
-5. To host React and the API separately, set `REACT_APP_API_URL` to the public API origin when building the frontend. Neon provides the database and backend services, but does not host this React site or the Express API.
+El frontend de Vercel comunica con el backend de Render. El backend usa Neon
+PostgreSQL mediante `DATABASE_URL`, no la API publica del navegador.
 
-The app retains its existing administrator accounts and password flow in the `administrador` table; Managed Neon Auth is enabled on the branch but is not used by the app. Object Storage and Realtime are provisioned but are not yet part of an application workflow. AI Gateway inference requires credits, which were unavailable at setup time. The deployed `hello` Neon Function is a separate connectivity example, not the Express API.
+## Tecnologias
 
-## Legacy MySQL database notes
+- React 18 y React Scripts.
+- Node.js y Express.
+- PostgreSQL con `pg`.
+- Neon: PostgreSQL, Object Storage, Realtime e IA.
+- Resend para correos por HTTPS.
+- JWT y contrasenas con `scrypt`.
+- PDF-Lib para generar recibos PDF.
 
-The following instructions apply only to the original MySQL database and are not needed by the Neon-backed app.
+## Base de datos Neon
 
-1. Start MySQL. For a **new, empty database only**, import `database/bureau-manager.sql` in MySQL Workbench; the dump drops and recreates its tables, so do not import it over a database containing data.
-2. For an **existing database** created from the original SQL dump, apply `database/migrations/001_add_receipt_number.sql`, `database/migrations/002_migrate_relationships_and_receipt_date.sql`, `database/migrations/003_prevent_duplicate_tenants.sql`, `database/migrations/004_allow_unassigned_tenants.sql`, `database/migrations/005_add_receipt_payment_status.sql`, `database/migrations/006_add_password_reset.sql`, and `database/migrations/007_enforce_domain_constraints.sql` in order. The second migration moves the tenant-to-department relationship and preserves existing receipt dates. Before applying the third migration, resolve any existing duplicate tenants with the same name, surnames, email, and department. The fourth migration allows an inquilino's department assignment to be released without deleting the inquilino or their receipts. The fifth migration adds payment status and marks existing receipts as pending by default. The sixth migration prepares account passwords for secure hashing and creates the one-time password-reset token table. Existing plaintext passwords continue working and are upgraded to hashes after a successful login. The seventh migration adds the domain checks and uniqueness rules; duplicate receipt folios within a condominium are preserved as `AUTO-<id_recibo>` except for the first receipt in each duplicate group. It is safe to rerun if a previous attempt stopped partway through.
-3. If starting from the new dump, do not apply migrations 001–006; the dump already includes their final schema. Migration 007 can be run on the dump and is safe to rerun.
-4. Copy `back/.env.example` to `back/.env` and set `DB_PASSWORD` to your local MySQL password. Keep `back/.env` private; it is excluded from Git.
-5. To enable receipt emails and password-reset links, set `RESEND_API_KEY` and `RESEND_FROM` as described above. `FRONTEND_URL` should be the URL where the React app is available (default `http://localhost:3000`). Never share or commit the API key.
-6. In one terminal, run `npm start` from `back/` to start the API on port 4001, which is the port used by the React client.
-7. In another terminal, run `npm start` from the project root to start React on port 3000.
+La base principal corre en Neon y la estructura se declara en
+`database/neon-schema.sql`. El archivo `neon.ts` declara los servicios y los
+buckets usados por el proyecto.
 
-## Available Scripts
+No es necesario instalar PostgreSQL localmente para usar la infraestructura
+actual. Neon proporciona el servidor PostgreSQL administrado. Solo se requiere
+la URL de conexion de la rama `production`.
 
-In the project directory, you can run:
+### Vincular el proyecto
 
-### `npm start`
+Desde la raiz del proyecto:
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+```powershell
+npm i -g neon@latest
+neon --version
+neon init -y --org-id org-fragrant-leaf-08009098 --project-id quiet-salad-56681958 --branch production --services postgres,auth,ai-gateway,object-storage,functions,realtime
+neon deploy
+```
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+Si el proceso requiere iniciar sesion:
 
-### `npm test`
+```powershell
+neon login
+```
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+Completa el inicio de sesion en el navegador y vuelve a ejecutar
+`neon init` o `neon deploy`.
 
-### `npm run build`
+`neon init` crea `.neon/` y `neon deploy` obtiene las variables de Neon.
+`.env.local` y `.neon/` estan ignorados por Git.
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### Aplicar el esquema
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+Instala las dependencias y aplica el esquema idempotente:
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+```powershell
+npm ci
+Push-Location back
+npm ci
+npm run db:migrate
+Pop-Location
+```
 
-### `npm run eject`
+El comando lee `DATABASE_URL` desde el entorno, `.env.local` de la raiz o
+`back/.env`. Ejecuta `database/neon-schema.sql` dentro de una transaccion.
+Puede repetirse sin eliminar los datos existentes.
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+Puedes comprobar la conexion desde la API con:
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+```text
+https://condominios-urs.onrender.com/healthz
+```
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+Respuesta esperada:
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+```json
+{"status":"ok","database":"connected"}
+```
 
-## Learn More
+### Tabla de variables locales
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+Coloca las variables secretas en `.env.local` o `back/.env`. No las publiques en
+GitHub.
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+La raiz `.env.local` se puede obtener con Neon:
 
-### Code Splitting
+```text
+DATABASE_URL=postgresql://...
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+Para `back/.env`, usa como minimo:
 
-### Analyzing the Bundle Size
+```text
+PORT=4001
+FRONTEND_URL=http://localhost:3000
+DATABASE_URL=postgresql://...
+AUTH_JWT_SECRET=<cadena-secreta-de-al-menos-32-caracteres>
+RESEND_API_KEY=<clave-secreta-de-Resend>
+RESEND_FROM=Bureau Manager <no-reply@tudominio-verificado.com>
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+Valores de Neon adicionales que se obtienen segun los servicios declarados:
 
-### Making a Progressive Web App
+```text
+NEON_REALTIME_URL
+NEON_REALTIME_SECRET
+NEON_AI_GATEWAY_BASE_URL
+NEON_AI_GATEWAY_TOKEN
+NEON_AI_MODEL
+S3_ENDPOINT
+S3_REGION
+S3_BUCKET
+S3_ACCESS_KEY_ID
+S3_SECRET_ACCESS_KEY
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+`back/.env.example` contiene una plantilla sin secretos.
 
-### Advanced Configuration
+## Ejecutar el sistema localmente
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+Requisitos:
 
-### Deployment
+- Node.js 18 o 24.
+- Una cuenta Neon y `DATABASE_URL`.
+- Cuenta de Google solo si vas a crear otro remitente SMTP; el despliegue
+  actual usa Resend.
+- Una cuenta Resend si vas a probar el envio de correos.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+Instala las dependencias:
 
-### `npm run build` fails to minify
+```powershell
+npm ci
+npm --prefix back ci
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+Aplica la base:
+
+```powershell
+npm --prefix back run db:migrate
+```
+
+Inicia frontend y backend con un solo comando:
+
+```powershell
+npm start
+```
+
+El launcher `scripts/start.js` inicia:
+
+- React en `http://localhost:3000`.
+- Express en `http://localhost:4001`.
+- `FRONTEND_URL` local como `http://localhost:3000`.
+- `REACT_APP_API_URL` local como `http://localhost:4001`.
+
+Para iniciar los procesos por separado:
+
+```powershell
+npm --prefix back start
+npm run client
+```
+
+Detener los procesos:
+
+```powershell
+Ctrl+C
+```
+
+Antes de usar recibos, registra al menos una cuenta administradora desde la
+interfaz. Crear recibos exige un administrador existente.
+
+## Desplegar la base en Neon
+
+El despliegue de base usado por el proyecto sigue este orden:
+
+1. Crear o seleccionar el proyecto Neon.
+2. Vincular el proyecto y la rama `production`.
+3. Declarar los servicios en `neon.ts`.
+4. Ejecutar `neon deploy`.
+5. Copiar `DATABASE_URL` a Render.
+6. Ejecutar `npm run db:migrate` contra el entorno real.
+7. Comprobar `/healthz`.
+
+Neon no debe recibir directamente las peticiones del navegador. El frontend
+llama al backend de Render y el backend consulta Neon.
+
+## Desplegar el backend en Render
+
+Render aloja Express, no React.
+
+Configuracion usada:
+
+```text
+Root Directory: back
+Runtime: Node
+Build Command: npm ci
+Start Command: npm start
+Branch: main
+```
+
+Variables de entorno obligatorias:
+
+| Variable | Valor |
+|---|---|
+| `DATABASE_URL` | URL pooled o de conexion directa de Neon |
+| `AUTH_JWT_SECRET` | Cadena aleatoria de al menos 32 caracteres |
+| `FRONTEND_URL` | URL exacta de Vercel, sin barra final |
+| `PORT` | Usa el puerto que Render inyecta; no fijarlo manualmente |
+| `RESEND_API_KEY` | Clave secreta de envio de Resend |
+| `RESEND_FROM` | `Bureau Manager <no-reply@dominio-verificado.com>` |
+
+Variables adicionales si se usan los servicios Neon:
+
+```text
+NEON_REALTIME_URL
+NEON_REALTIME_SECRET
+NEON_AI_GATEWAY_BASE_URL
+NEON_AI_GATEWAY_TOKEN
+NEON_AI_MODEL
+S3_ENDPOINT
+S3_REGION
+S3_BUCKET
+S3_ACCESS_KEY_ID
+S3_SECRET_ACCESS_KEY
+```
+
+Ejemplo:
+
+```text
+FRONTEND_URL=https://proyecto-condominios-g2jf.vercel.app
+```
+
+Despues de guardar las variables, crea un deploy. Comprueba:
+
+```text
+GET https://condominios-urs.onrender.com/healthz
+```
+
+La raiz de Render devuelve `Cannot GET /` si se abre en el navegador. Esto es
+normal: Render sirve la API y no necesita presentar una pagina React.
+
+## Desplegar el frontend en Vercel
+
+Vercel aloja React.
+
+Configuracion recomendada:
+
+```text
+Framework Preset: Create React App
+Root Directory: /
+Build Command: npm run build
+Output Directory: build
+Install Command: npm ci
+```
+
+Variable del frontend:
+
+```text
+REACT_APP_API_URL=https://condominios-urs.onrender.com
+```
+
+No pongas esa variable en el backend de Render. En CRA se incorpora al
+JavaScript durante `npm run build`.
+
+Despues de cambiarla, vuelve a desplegar Vercel. La URL desplegada puede
+configurar el CORS mediante `FRONTEND_URL` en Render.
+
+## Configurar correos con Resend
+
+El proyecto ya usa Resend por HTTPS. SMTP no es necesario ni funciona en el plan
+Free de Render para los puertos 465/587.
+
+1. Entra a <https://resend.com/domains>.
+2. Pulsa **Add Domain** y agrega el dominio o subdominio verificado.
+3. Copia los registros DKIM, SPF y DMARC que muestra Resend.
+4. Agrega los registros en el DNS administrado por Cloudflare u otro proveedor.
+5. Deja los registros CNAME de correo sin proxy cuando el proveedor lo permita.
+   En Cloudflare corresponde a **DNS only**, no a la nube naranja.
+6. Espera a que Resend muestre **Verified** en DKIM y SPF.
+7. Crea una clave en <https://resend.com/api-keys> con permiso
+   **Sending access**.
+8. En Render agrega:
+
+```text
+RESEND_API_KEY=<clave-nueva>
+RESEND_FROM=Bureau Manager <no-reply@condommanagerbureau.online>
+```
+
+El remitente debe pertenecer al dominio ya verificado. No uses una direccion
+Gmail como `RESEND_FROM`. Las claves expuestas deben revocarse y reemplazarse.
+
+No es necesario configurar estas variables en Vercel.
+
+## Seguridad antes de publicar
+
+No se deben versionar:
+
+```text
+.env.local
+back/.env
+.neon/
+node_modules/
+build/
+```
+
+El repositorio incluye plantillas sin secretos:
+
+```text
+back/.env.example
+```
+
+Siempre revoca una clave o contrasena que haya aparecido en una captura,
+terminal, log o chat.
+
+## Verificacion
+
+Ejecuta localmente:
+
+```powershell
+npm run build
+node --check back/conexionDataBase.js
+npm start
+```
+
+Prueba estas rutas:
+
+```text
+http://localhost:4001/healthz
+http://localhost:3000
+```
+
+Prueba en produccion:
+
+1. Login con una cuenta administradora registrada.
+2. Crear condominio, edificio, departamento e inquilino.
+3. Crear un recibo.
+4. Descargar el PDF individual.
+5. Descargar el PDF masivo.
+6. Enviar un recibo por correo.
+7. Solicitar restablecimiento de contrasena.
+8. Verificar que el PDF adjunto abre correctamente.
+
+## Solucion rapida de problemas
+
+### El frontend no se comunica con la API
+
+- Revisa `REACT_APP_API_URL` en Vercel.
+- Revisa `FRONTEND_URL` en Render.
+- Ambos valores deben representar el origen exacto, sin espacios ni barra final.
+- Revisa que el backend este desplegado y que `/healthz` responda.
+
+### React muestra una pagina en blanco
+
+- Abre DevTools y revisa la consola.
+- Vuelve a desplegar Vercel despues de cambiar variables o corregir el codigo.
+- La vista de recibos normaliza fechas que pueden llegar como texto o `Date`.
+
+### Resend rechaza el correo
+
+- Confirma que el dominio aparezca como Verified.
+- Confirma que `RESEND_FROM` use ese dominio.
+- Cambia la clave si una clave anterior fue expuesta.
+- Revisa el log de Render y los logs de Resend.
+
+### No se puede conectar a Neon
+
+- Confirma `DATABASE_URL` en Render.
+- Ejecuta `npm --prefix back run db:migrate`.
+- Comprueba `/healthz`.
+- No uses credenciales MySQL antiguas con el esquema Neon.
+
+## Scripts disponibles
+
+Desde la raiz:
+
+```text
+npm start             Inicia frontend y backend localmente
+npm run client        Inicia solo React
+npm run server        Inicia solo Express
+npm run build         Compila React para produccion
+npm test              Ejecuta las pruebas de React
+```
+
+Desde `back/`:
+
+```text
+npm start             Inicia Express
+npm run db:migrate    Aplica database/neon-schema.sql a Neon
+```
