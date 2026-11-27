@@ -601,7 +601,7 @@ app.post('/api/enviarRecibosCorreoElectronico', async (req, res) => {
         text: 'Adjuntamos su recibo de pago.',
         attachments: [{
           filename: `recibo-${receipt.no_recibo}.pdf`,
-          content: pdfBytes.toString('base64'),
+          content: Buffer.from(pdfBytes).toString('base64'),
         }],
       });
       sentCount += 1;
